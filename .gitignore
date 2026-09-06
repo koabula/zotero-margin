@@ -1,0 +1,11 @@
+node_modules/
+build/
+.research/
+.runtime/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+.codex/
+.agents/

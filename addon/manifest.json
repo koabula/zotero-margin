@@ -1,0 +1,19 @@
+{
+  "manifest_version": 2,
+  "name": "Margin · 页伴",
+  "version": "0.2.0",
+  "description": "与文献一起思考。支持用户自备 API、原文引用、阅读器定位与笔记。",
+  "author": "Margin Contributors",
+  "icons": {
+    "48": "icons/margin.svg",
+    "96": "icons/margin.svg"
+  },
+  "applications": {
+    "zotero": {
+      "id": "margin@zotero.local",
+      "update_url": "https://updates.invalid/margin/updates.json",
+      "strict_min_version": "10.0",
+      "strict_max_version": "10.0.*"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+Margin bundles the following open-source components and their transitive dependencies.
+markdown-it — MIT — https://github.com/markdown-it/markdown-it
+KaTeX — MIT — https://github.com/KaTeX/KaTeX
+Dependency license files are included in the distribution by the build process.

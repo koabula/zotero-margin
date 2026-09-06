@@ -1,0 +1,192 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { JSDOM } from "jsdom";
+import { Sidebar } from "../src/ui";
+import { emptySession, type ReaderBridge, type Session, type Store } from "../src/types";
+import { normalizeConfig } from '../src/models';
+const tick = () => new Promise(resolve => setTimeout(resolve, 20));
+function setup() {
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost:8888' });
+  const sessions = new Map<string, Session>();
+  const store: Store = { getConfig: async () => ({ baseURL: "", model: "", apiKey: "" }), saveConfig: async () => {}, loadSession: async key => sessions.get(key) || emptySession(), saveSession: async (key, value) => { sessions.set(key, structuredClone(value)); } };
+  const bridge: ReaderBridge = { context: async () => ({ attachmentID: 1, libraryID: 1, attachmentKey: 'ABCDEFGH', title: 'Real Paper', authors: 'Author', pageIndex: 1, pageLabel: '21', pageCount: 3, selection: 'Selected passage' }), readPage: async i => ({pageIndex:i,pageLabel:String(i),text:'text'}), annotations: async () => [], navigate: async () => {}, createNote: async () => ({id:1}), assertActive: () => {} };
+  const sidebar = new Sidebar(dom.window.document.querySelector('#root') as HTMLElement, { store, copy: () => {}, openURL: () => {} });
+  return { dom, sidebar, bridge, store, sessions };
+}
+test("sidebar follows document context, lets users exclude selection, and opens settings without sending", async () => {
+  const { sidebar, bridge } = setup(); await sidebar.attach(bridge);
+  assert.ok(sidebar.root.textContent?.includes('Real Paper'));
+  assert.ok(sidebar.root.textContent?.includes('PDF 2/3'));
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="selection"]')!.click();
+  assert.equal(sidebar.root.querySelector<HTMLElement>('.margin-selection')!.hidden, true);
+  await sidebar.send('Explain');
+  assert.equal(sidebar.root.querySelector<HTMLElement>('.margin-settings')!.hidden, false);
+  assert.equal(sidebar.root.querySelectorAll('.margin-user').length, 0);
+  sidebar.dispose();
+});
+test("new conversations archive and restore the document's history", async () => {
+  const { sidebar, bridge, sessions } = setup();
+  sessions.set('1-ABCDEFGH', { version: 1, draft: '', messages: [{ id:'a',role:'user',content:'An earlier question',sources:[] }] });
+  await sidebar.attach(bridge);
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="new"]')!.click(); await tick();
+  assert.equal(sessions.get('1-ABCDEFGH')!.archives!.length, 1);
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="history"]')!.click();
+  assert.ok(sidebar.root.querySelector('.margin-history')!.textContent?.includes('An earlier question'));
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="restore"]')!.click(); await tick();
+  assert.ok(sidebar.root.querySelector('.margin-user')!.textContent?.includes('An earlier question'));
+  sidebar.dispose();
+});
+test("closing a reader disables the composer", async () => {
+  const { sidebar, bridge } = setup(); await sidebar.attach(bridge); await sidebar.attach(null);
+  assert.equal(sidebar.root.querySelector('textarea')!.disabled, true); sidebar.dispose();
+});
+
+test("a late reader load or context refresh cannot reopen a closed document", async () => {
+  const { sidebar, bridge } = setup();
+  const context = await bridge.context();
+  let resolve!: (value: typeof context) => void;
+  bridge.context = () => new Promise(done => { resolve = done; });
+  const opening = sidebar.attach(bridge);
+  await sidebar.attach(null); resolve(context); await opening;
+  assert.equal(sidebar.root.querySelector('textarea')!.disabled, true);
+  bridge.context = async () => context;
+  await sidebar.attach(bridge);
+  bridge.context = () => new Promise(done => { resolve = done; });
+  const refreshing = sidebar.refreshContext();
+  await sidebar.attach(null); resolve(context); await refreshing;
+  assert.equal(sidebar.root.querySelector('textarea')!.disabled, true);
+  sidebar.dispose();
+});
+
+test("closing during credential loading prevents a pending question from being sent", async () => {
+  const { sidebar, bridge, store } = setup();
+  await sidebar.attach(bridge);
+  let resolve!: (value: Awaited<ReturnType<Store['getConfig']>>) => void;
+  store.getConfig = () => new Promise(done => { resolve = done; });
+  const sending = sidebar.send('解释原文');
+  await sidebar.attach(null);
+  resolve({baseURL:'http://localhost:18765/v1',model:'test',apiKey:''});
+  await sending;
+  assert.equal(sidebar.root.querySelectorAll('.margin-user').length, 0);
+  assert.equal(sidebar.root.querySelector('textarea')!.disabled, true);
+  sidebar.dispose();
+});
+
+test("a complete answer renders progress, formulas and source buttons in the XHTML host", async () => {
+  const { sidebar, bridge, store } = setup();
+  store.getConfig = async () => ({ baseURL:'http://localhost:18765/v1', model:'test', apiKey:'' });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices:[{ message:{ content:'原文解释 [[p2]]。公式 $x^2 + y^2$。', role:'assistant' }, finish_reason:'stop' }] }), { headers:{'Content-Type':'application/json'} });
+  try {
+    await sidebar.attach(bridge);
+    await sidebar.send('解释本页');
+    assert.equal(sidebar.root.querySelector<HTMLElement>('.margin-error')!.hidden, true);
+    assert.ok(sidebar.root.querySelector('.margin-status')!.textContent?.includes('回答完成'));
+    assert.equal(sidebar.root.querySelectorAll('.margin-citation').length, 1);
+    assert.ok(sidebar.root.querySelector('.katex'));
+    assert.equal(sidebar.root.querySelector('.margin-send')!.getAttribute('aria-label'), '发送问题');
+  } finally { globalThis.fetch = originalFetch; sidebar.dispose(); }
+});
+
+test('models can be manually added, filtered, defaulted and saved without fetching', async () => {
+  const {sidebar,bridge,store,dom}=setup();
+  let saved=normalizeConfig({baseURL:'http://localhost/v1',apiKey:'',model:'a'});
+  store.getConfig=async()=>saved; store.saveConfig=async config=>{saved=normalizeConfig(config);};
+  await sidebar.attach(bridge);await sidebar.refreshConfig();
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="settings"]')!.click();
+  const manual=sidebar.root.querySelector<HTMLInputElement>('[name="manualModel"]')!;manual.value='b';
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="add-model"]')!.click();
+  const search=sidebar.root.querySelector<HTMLInputElement>('[name="modelSearch"]')!;search.value='b';search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+  assert.equal(sidebar.root.querySelectorAll('[data-model-id]').length,1);
+  const defaultModel=sidebar.root.querySelector<HTMLSelectElement>('[name="defaultModel"]')!;defaultModel.value='b';defaultModel.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="save-settings"]')!.click();await tick();
+  assert.deepEqual(saved.modelIDs,['a','b']);assert.equal(saved.defaultModelID,'b');
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="new"]')!.click();await tick();
+  assert.equal(sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!.value,'b');sidebar.dispose();
+});
+
+test('chat model is frozen during tools, switch preserves context, and archives restore the model', async () => {
+  const {sidebar,bridge,store,dom}=setup();
+  store.getConfig=async()=>normalizeConfig({baseURL:'http://localhost/v1',apiKey:'',model:'a',modelIDs:['a','b']});
+  await sidebar.attach(bridge);await sidebar.refreshConfig();
+  const select=sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!;
+  const originalFetch=globalThis.fetch;const bodies:any[]=[];
+  globalThis.fetch=async(_url,init)=>{
+    const body=JSON.parse(init!.body as string);bodies.push(body);
+    if(bodies.length===1){
+      assert.equal(select.disabled,true);select.value='b';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+      return Response.json({choices:[{message:{content:null,tool_calls:[{id:'c',type:'function',function:{name:'get_reader_context',arguments:'{}'}}]},finish_reason:'tool_calls'}]});
+    }
+    return Response.json({choices:[{message:{content:'回答 [[p2]]'},finish_reason:'stop'}]});
+  };
+  try {
+    await sidebar.send('first');assert.deepEqual(bodies.map(b=>b.model),['a','a']);
+    const old=sidebar.root.querySelector('.margin-assistant');
+    select.value='b';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));await sidebar.send('second');
+    assert.equal(bodies[2].model,'b');assert.ok(JSON.stringify(bodies[2].messages).includes('first'));
+    assert.equal(sidebar.root.querySelector('.margin-assistant'),old,'previous messages retain DOM');
+    sidebar.root.querySelector<HTMLButtonElement>('[data-action="new"]')!.click();await tick();assert.equal(select.value,'a');
+    sidebar.root.querySelector<HTMLButtonElement>('[data-action="history"]')!.click();sidebar.root.querySelector<HTMLButtonElement>('[data-action="restore"]')!.click();await tick();assert.equal(select.value,'b');
+  } finally {globalThis.fetch=originalFetch;sidebar.dispose();}
+});
+
+test('removing the conversation model falls back once and a failed refresh preserves chosen IDs', async () => {
+  const {sidebar,bridge,store,dom}=setup();
+  let config=normalizeConfig({baseURL:'http://localhost/v1',apiKey:'',model:'a',modelIDs:['a','b']});
+  store.getConfig=async()=>config;await sidebar.attach(bridge);await sidebar.refreshConfig();
+  const select=sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!;
+  select.value='b';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  config=normalizeConfig({...config,modelIDs:['a']});await sidebar.refreshConfig();assert.equal(select.value,'a');
+  const status=sidebar.root.querySelector('.margin-status')!.textContent;await sidebar.refreshConfig();assert.equal(sidebar.root.querySelector('.margin-status')!.textContent,status);
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="settings"]')!.click();
+  const originalFetch=globalThis.fetch;globalThis.fetch=async()=>new Response('',{status:404});
+  try {sidebar.root.querySelector<HTMLButtonElement>('[data-action="fetch-models"]')!.click();await tick();assert.equal(sidebar.root.querySelector<HTMLInputElement>('[data-model-id="a"]')!.checked,true);assert.ok(sidebar.root.querySelector('.margin-model-feedback')!.textContent?.includes('手动添加'));}
+  finally {globalThis.fetch=originalFetch;sidebar.dispose();}
+});
+
+test('discovery uses unsaved credentials, preserves enabled IDs and replaces stale fetched options', async () => {
+  const {sidebar,bridge,store,dom}=setup();
+  store.getConfig=async()=>normalizeConfig({baseURL:'http://localhost/v1',apiKey:'old',model:'manual'});
+  let saves=0;store.saveConfig=async()=>{saves++;};
+  await sidebar.attach(bridge);await sidebar.refreshConfig();
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="settings"]')!.click();
+  sidebar.root.querySelector<HTMLInputElement>('[name="baseURL"]')!.value='https://example.com/prefix/chat/completions';
+  sidebar.root.querySelector<HTMLInputElement>('[name="apiKey"]')!.value='new-key';
+  const originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=async(url,init)=>{
+    assert.equal(url,'https://example.com/prefix/models');assert.equal((init!.headers as any).Authorization,'Bearer new-key');assert.equal(init!.body,undefined);
+    return Response.json({data:(++calls===1?['a','b']:['c']).map(id=>({id}))});
+  };
+  try {
+    const fetchButton=sidebar.root.querySelector<HTMLButtonElement>('[data-action="fetch-models"]')!;
+    fetchButton.click();await tick();sidebar.root.querySelector<HTMLInputElement>('[data-model-id="a"]')!.click();
+    fetchButton.click();await tick();
+    assert.ok(sidebar.root.querySelector('[data-model-id="manual"]'));
+    assert.equal(sidebar.root.querySelector<HTMLInputElement>('[data-model-id="a"]')!.checked,true);
+    assert.equal(sidebar.root.querySelector('[data-model-id="b"]'),null);assert.ok(sidebar.root.querySelector('[data-model-id="c"]'));
+    assert.equal(saves,0);
+    globalThis.fetch=async(_url,init)=>new Promise((_resolve,reject)=>init!.signal!.addEventListener('abort',()=>reject(new Error('cancelled'))));
+    fetchButton.click();fetchButton.click();await tick();assert.match(sidebar.root.querySelector('.margin-model-feedback')!.textContent!,/已取消/);
+    fetchButton.click();const key=sidebar.root.querySelector<HTMLInputElement>('[name="apiKey"]')!;key.value='changed';key.dispatchEvent(new dom.window.Event('input',{bubbles:true}));await tick();
+    assert.equal(fetchButton.textContent,'获取模型');assert.equal(sidebar.root.querySelector('.margin-model-feedback')!.textContent,'');
+  } finally {globalThis.fetch=originalFetch;sidebar.dispose();}
+});
+
+test('reader preparation failure releases the model selector', async () => {
+  const {sidebar,bridge,store}=setup();
+  store.getConfig=async()=>({baseURL:'http://localhost/v1',apiKey:'',model:'a'});
+  await sidebar.attach(bridge);await sidebar.refreshConfig();bridge.context=async()=>{throw new Error('reader unavailable');};
+  await sidebar.send('question');assert.equal(sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!.disabled,false);sidebar.dispose();
+});
+
+test('saving settings keeps the removed-model fallback visible', async () => {
+  const {sidebar,bridge,store,dom}=setup();
+  store.getConfig=async()=>normalizeConfig({baseURL:'http://localhost/v1',apiKey:'',model:'a',modelIDs:['a','b']});
+  await sidebar.attach(bridge);await sidebar.refreshConfig();
+  const select=sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!;
+  select.value='b';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="settings"]')!.click();
+  sidebar.root.querySelector<HTMLInputElement>('[data-model-id="b"]')!.click();
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="save-settings"]')!.click();await tick();
+  assert.equal(select.value,'a');assert.match(sidebar.root.querySelector('.margin-status')!.textContent!,/原模型已移除/);sidebar.dispose();
+});
