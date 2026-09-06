@@ -8,7 +8,7 @@ Margin is an AI reading companion in Zotero's right sidebar. It reads the curren
 
 [Download](https://github.com/koabula/zotero-margin/releases/latest) · [Changelog](CHANGELOG.md) · [Validation](VALIDATION.md) · [Report an issue](https://github.com/koabula/zotero-margin/issues)
 
-> **Version 0.3.0** targets **Zotero 10.0.x** and PDFs with a text layer. Native integration is tested on Windows with Zotero 10.0.1. Native testing on macOS and Linux is still pending.
+> **Version 0.3.1** targets **Zotero 10.0.x** and PDFs with a text layer. Native integration is tested on Windows with Zotero 10.0.1. Native testing on macOS and Linux is still pending.
 
 ## Features
 
@@ -24,7 +24,7 @@ The assistant's tools are limited to reading-related actions in Zotero. It has n
 
 ## Install
 
-1. Download **`margin-0.3.0.xpi`** from [Releases](https://github.com/koabula/zotero-margin/releases/latest). Choose the XPI, not GitHub's generated source archive.
+1. Download **`margin-0.3.1.xpi`** from [Releases](https://github.com/koabula/zotero-margin/releases/latest). Choose the XPI, not GitHub's generated source archive.
 2. In Zotero, open **Tools → Plugins**.
 3. Open the gear menu, choose **Install Add-on From File**, and select the XPI.
 4. Open a PDF and click the **Margin** icon in the right navigation rail.
@@ -87,6 +87,14 @@ The selector below the input switches between enabled models. Each conversation 
 
 Each attachment has its own conversation and draft. **New conversation** archives the current conversation; restore it from **Conversation history**. If its model was removed, Margin falls back to the default model and shows a notice. History titles display up to two lines; hover to read the full title.
 
+### If an answer stops
+
+Margin keeps the partial answer and distinguishes model output limits, connection problems, timeouts, and plugin protection limits. For the latest interrupted answer, click **Continue generating** to append to the same answer with its question and source references retained. Your unsent draft is preserved.
+
+Continuation uses that answer's original model; if you removed it, re-enable it first. It can read and search the current document, but cannot navigate or save notes again. It is a new model request, not a replay of unfinished tool calls. Continuation quality depends on the model, so it may still repeat or rephrase text.
+
+Active streams are no longer stopped by the old 2 MB framing limit or a fixed two-minute deadline. Requests stop after 60 seconds without incoming data or 10 minutes in total, with bounded content and transport protection still in place.
+
 ### Copy and save notes
 
 Select text across paragraphs or code, then use `Ctrl+C` (`Cmd+C` on macOS) or right-click **Copy selected text**. Each answer also has a copy button.
@@ -99,7 +107,7 @@ A proposed note is only written after you choose **Save to item**. Read-only lib
 
 - **Your API, directly:** no Margin backend or telemetry. Relevant document text, selections, conversation context, and tool results are sent to your configured service when you ask a question. That provider controls its server-side data handling.
 - **Credentials:** API keys are stored in the Zotero / Gecko credential store, not ordinary preferences, conversations, or logs.
-- **Local conversations:** sessions live in `margin/sessions/` under the Zotero profile directory. Extracted PDF text is cached in memory only.
+- **Local conversations:** sessions, including reading context needed for continuation, live in `margin/sessions/` under the Zotero profile directory. Extracted PDF text is cached in memory only.
 - **Current document scope:** switching or closing a document stops generation. Background reading does not change the visible page; explicit navigation does.
 - **Zotero notes:** saved notes follow Zotero's own synchronization settings.
 
@@ -109,7 +117,7 @@ Answers use Markdown with raw HTML disabled. Model-generated remote images are n
 
 EPUB, web snapshots, OCR for scanned PDFs, image understanding, and cross-document search are not supported. Complex formulas and layouts may not extract cleanly.
 
-Version 0.3.0 passes **37 automated tests** and native integration checks for language changes, history layout, sidebar behavior, clipboard copying, reader lifecycle, model routing, and tool flows. Model tests use a **local mock service**; they do not establish real LLM reading quality or compatibility with every provider. See the [validation record](VALIDATION.md) for methods and limits.
+Version 0.3.1 passes **46 automated tests** and native integration checks for language changes, history layout, sidebar behavior, clipboard copying, reader lifecycle, model routing, and tool flows. Model tests use a **local mock service**; they do not establish real LLM reading quality or compatibility with every provider. See the [validation record](VALIDATION.md) for methods and limits.
 
 ## Development
 
@@ -122,7 +130,7 @@ npm ci
 npm run check
 ```
 
-This runs type checking, tests, and a build, producing `dist/margin-0.3.0.xpi`. See the [development guide](docs/DEVELOPMENT.md) for the source layout, preview, isolated native tests, and release steps.
+This runs type checking, tests, and a build, producing `dist/margin-0.3.1.xpi`. See the [development guide](docs/DEVELOPMENT.md) for the source layout, preview, isolated native tests, and release steps.
 
 When reporting issues, include your Zotero version, operating system, reproduction steps, and redacted error details. Do not submit API keys, personal papers, or complete private conversations.
 

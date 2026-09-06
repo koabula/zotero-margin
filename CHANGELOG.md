@@ -1,3 +1,13 @@
+# 0.3.1 — 2026-09-06
+
+- Fixed premature stream cancellation caused by counting SSE protocol overhead against a 2 MB limit. Content, event, tool, and transfer protections now have separate budgets.
+- Replaced the fixed two-minute deadline with independent 60-second idle and 10-minute total request deadlines.
+- Distinguished interruption causes and preserved partial answers for both JSON and streaming model length limits.
+- Added **Continue generating** for the latest incomplete answer. It appends using the original model, question, partial text, and sources while retaining unsent drafts. Continuation cannot navigate or save notes, including unoffered calls from a model.
+- Added long-stream, chunk-boundary, timeout, partial-answer, and continuation regressions. Updated bilingual documentation.
+
+中文：修复 SSE 协议开销导致的过早截断；区分无数据超时与总时限；保留部分回答并支持使用原模型继续生成，续写仅可查阅原文。
+
 # 0.3.0 — 2026-09-06
 
 - Added English and Simplified Chinese in one universal XPI. Follow Zotero by default, or change the language independently in settings.

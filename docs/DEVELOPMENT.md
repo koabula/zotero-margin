@@ -40,6 +40,14 @@ Chinese message IDs are shared by both catalogs, with named parameters such as `
 
 Language listeners refresh interface text without replacing conversation nodes or unsaved settings. Native Fluent labels use the same wording; the navigation tooltip also follows a manual override. Catalogs are bundled into `plugin.js`, and both Fluent locales are included in the universal XPI.
 
+## Response limits and continuation
+
+The parser separates retained text from protocol overhead: 100,000 UTF-16 code units of visible content per completion, 262,144 units across tool IDs/names/arguments, 1,048,576 units per SSE event or JSON response, and a 64 MiB transfer backstop. Complete SSE events are consumed before checking the remaining buffer, so combining many events in one network chunk does not trigger the event limit. JSON and SSE truncation both preserve received text. Ignored provider fields are not stored as answer text.
+
+Each request has a 60-second idle timeout and 10-minute total timeout. Incoming bytes reset only the idle timer. Cancellation closes outstanding body reads; error codes distinguish user cancellation, idle/total timeout, model limits, plugin limits, malformed streams, and disconnection. Tests inject short deadlines and small limits instead of waiting minutes.
+
+A continuation appends to the latest incomplete answer with its original model, original question, partial content, sources, and (for new messages) saved reader context. It preserves unsent input. Only read-only tools are offered, and execution separately rejects navigation/note calls even if the model invents them. An answer longer than 100,000 units contributes its first 4,000 and last 96,000 units, with an explicit omission marker, to bound repeated continuation context. Older messages without stored context use current reader metadata and retained sources. Nothing retries automatically.
+
 ## Browser preview
 
 Run these in separate terminals:

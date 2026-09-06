@@ -1,59 +1,58 @@
-# Margin 0.3.0 validation
+# Margin 0.3.1 validation
 
-Date: 2026-09-06. Platform: Windows, Zotero **10.0.1**, Node.js 24.19.0.
+Date: 2026-09-06. Platform: Windows / Zotero **10.0.1**, Node.js 24.19.0.
 
-Release: `margin-0.3.0.xpi` — **1,108,820 bytes**, 77 entries.
+Release: `margin-0.3.1.xpi`, **1,111,319 bytes**, 77 entries.
 
-SHA-256: `6b181f79920a2a9fa858412d9dfa4482cd56307f52b4048d39e0b9601a8cfcbe`
+SHA-256: `0d731d2f680e3a7dfa6bd27b22c33a0f5cb14ecb3bd577f1b70a63ddad66490b`
 
-## Automated checks
+## Problem and correction
 
-`npm run check` passed: TypeScript, **37 tests**, and XPI build.
+The previous parser stopped after receiving 2,000,000 bytes of SSE traffic. Repeated JSON envelopes and ignored provider fields counted toward that limit, so an ordinary answer could be cut off even when its visible text was much smaller. This was a plugin transfer limit, separate from a provider's `finish_reason: length`.
 
-| Area | Evidence |
+Version 0.3.1 separates retained text, tool data, event buffering, and transfer limits. It also distinguishes idle timeout from total request timeout, preserves partial JSON responses on model truncation, and offers an explicit continuation action.
+
+## Automated verification
+
+`npm run check` passed: type checking, **46 tests**, and build.
+
+| Requirement | Evidence |
 | --- | --- |
-| Language resolution | Chinese locales, including `zh-TW`, resolve to Simplified Chinese in automatic mode. Other host languages fall back to English. Explicit overrides win; invalid preferences use automatic mode. |
-| Resource coverage | Both catalogs have identical keys and interpolation parameters. English entries are nonempty. Both catalogs are bundled, together with both native Fluent resources. |
-| Independent language setting | Switching without API configuration saves only the language. Unsaved API fields, drafts, selected models, and other open panels are preserved or updated as appropriate. |
-| Streaming selection | Switching language retains the selected answer node and text while more chunks arrive. Clearing selection catches up. The model remains locked, and language preferences are absent from API payloads. |
-| History | Complete titles survive rendering and restoration, markup is escaped, dates follow the selected locale, English singular message counts are correct, and drafts survive restoration. |
-| Regression | Scoped reader tools, cancellation, Markdown safety, copy boundaries, model discovery errors/timeouts, manual models, defaults, legacy migration, request model IDs, retained context, history restoration, and document lifecycle. |
+| Large valid streams | A generated stream above the old 2 MB threshold, with Chinese, emoji, and ignored reasoning fields, returns identical content when transported in 37-byte chunks, 8 KiB chunks, or one large chunk. A single content event produces the same final answer. |
+| Text versus framing limits | A small injected text budget retains the exact allowed prefix regardless of chunk boundaries. Many complete events in a large network chunk do not trigger the per-event limit. |
+| Bounded exceptional data | Tests reject oversized unfinished events, JSON bodies, accumulated tool fields, and total transfer with distinct error codes. Production limits: 100,000 UTF-16 units of text, 262,144 units across tool fields, 1,048,576 units per event/JSON response, 64 MiB transferred per completion. |
+| Partial output | JSON and SSE responses ending with model length limits retain their partial text. Premature EOF is reported as a connection interruption rather than success. |
+| Timeouts and cancellation | Injected deadlines verify that activity refreshes the idle timer, a stalled body is cancelled, continued traffic still reaches the total deadline, and user cancellation remains distinct. Production values are 60 seconds idle / 10 minutes total per model request; tests use shorter intervals. |
+| Continuation context | Original question, complete partial text within the context budget, and source IDs reach the next request. Repeated continuation bounds oversized prior text with a marked omission, as documented in the development guide. |
+| No repeated write actions | Only read-only schemas are offered during continuation. A model that nevertheless returns `navigate` or `create_note` receives execution errors; those actions do not run. |
+| UI and persistence | Continuation retains the original answer ID/node, selected text, unsent draft, source references, and original model. A separately selected chat model stays selected for the next new question. Removed original models are rejected explicitly. Legacy partial messages remain usable. |
+| Regression | The existing language, history, model discovery/routing, scoped reader tools, Markdown safety, cancellation, and copy tests pass. |
 
-## Native Zotero validation
+## Native Zotero verification
 
-The production sidebar and reader adapter ran in an **isolated profile and fixture library**. This is native Gecko/Zotero validation, not a browser preview. The daily-use profile and personal papers were not modified.
+Full results: [native-0.3.1.json](validation/native-0.3.1.json). Tests ran inside the production sidebar with an isolated profile, fixture PDF, and local mock service. No personal papers or daily-use profile were used.
 
-Full results: [native-0.3.0.json](validation/native-0.3.0.json).
+- **Long response:** the local HTTP service sent **3,540,057 bytes** of SSE data. Zotero displayed the exact **10,000-character** expected answer, with no truncation error. The DOM comparison removes only Markdown's enclosing-paragraph whitespace.
+- **Interruption:** a model length response preserved text and its verified citation, displayed the specific model-limit message, and exposed **Continue generating**.
+- **Continuation:** the button appended to the same answer, retained the unsent draft and clickable source, and removed the incomplete state after success.
+- **Side effects:** the mock model deliberately returned unoffered note-save and navigation calls. The agent rejected them; native note count and PDF page position were unchanged.
+- **Regression:** native full-height layout, narrow widths, history bounds, language switching, streaming selection, clipboard comparisons, tool flow, model routing, document switching, and plugin cleanup/reload passed again.
 
-| Area | Observed result |
-| --- | --- |
-| Root cause of history overlap | Matching rules from `chrome://zotero-platform/content/zotero.css` include a native `height: 28px`. Before the fix, the history button measured about 28.57px while its children extended roughly 59px below it. A separate legacy `max-height: 25px` rule also matches, but computed max-height was already `none`; the fixed height was the active constraint. |
-| Corrected history height | The repaired representative row measured about 95.77px. Title and metadata remain within the button. Height, maximum height, margins, appearance, and shrink behavior are overridden only for Margin history entries. |
-| History stress cases | 12 combinations: Chinese/English × requested sidebar widths 260/320/520px × font preference 13/20. Actual sidebar widths were asserted; row widths were 191/251/451px after navigation and padding. To stress actual text enlargement despite the plugin's fixed base type size, the 20px cases additionally set title and metadata text to 20px in the test DOM. No title/meta, adjacent-row, or outer-scroll overlap was found. |
-| Long and empty history | Chinese, English, long repeated sentences, long unbroken words, two-line title clamping, complete hover titles, a year-boundary timestamp, wrapping metadata, empty history, and native keyboard focus passed. Rows remain native HTML buttons with default activation semantics. |
-| Language in a native reader | Automatic Chinese detection, manual English settings, native navigation tooltip, retained draft/model/answer nodes, and selected text during generation passed. Switching language did not unlock the in-flight model. |
-| Restart persistence | Plugin shutdown/startup retained English. A separate actual Zotero process restart retained the saved `zh-CN` override and loaded Chinese panels; the test `user.js` language reset was removed before that restart. See [restart-0.3.0.json](validation/restart-0.3.0.json). |
-| Sidebar and lifecycle | Width changes, collapse/reopen, navigation restoration, resize to 1100×700, independent transcript scrolling, document switching, close/dispose, unchanged pinning, and plugin shutdown/reload passed. |
-| Native clipboard | DOM ranges in the real Zotero window selected Chinese, English, code, and multiple paragraphs. Copy keyboard events and the selection context menu were checked against the system clipboard, normalizing only CRLF/LF. Streaming selected text remained intact. |
-| Reading and models | Native PDF extraction, printed labels, search, annotations, source navigation, reviewed note persistence, two enabled mock models, locked request model IDs, new-conversation default, and restored model selection passed. |
+Native Gecko-rendered fixture screenshots were inspected:
 
-### Visual checks and limits
+- [Interrupted answer](validation/interrupted-0.3.1.png)
+- [Continued answer](validation/continued-0.3.1.png)
 
-Chinese and English history pages and English settings were captured from the real Zotero window through Gecko's renderer and visually inspected. The history screenshots contain only test fixtures:
+These are native rendering and DOM/system-clipboard checks, not a browser substitute. Physical mouse/keyboard input was not repeated in this patch run. Prior language/process-restart and physical-copy coverage is documented in the [0.3.0](validation/0.3.0.md) and [0.2.0](validation/0.2.0.md) records. Native macOS/Linux validation remains pending.
 
-- [English history](validation/history-en-0.3.0.png)
-- [Chinese history](validation/history-zh-0.3.0.png)
+## Model testing scope
 
-The desktop input helper failed to initialize during this run. Physical mouse drag / keyboard copy and physical Enter activation were not repeated for 0.3.0; native DOM, system clipboard, focus, click restoration, and computed-boundary tests ran instead. The earlier physical copy check is documented in the [0.2.0 record](validation/0.2.0.md). Native macOS/Linux checks remain pending.
+All model requests used local synthetic services: `margin-test-model`, `margin-test-alternate`, `margin-test-long`, and `margin-test-resume`. **No real LLM service was called.** The tests prove protocol handling, UI recovery, and tool execution boundaries; they do not establish the quality of a real model's continuation. A real model may repeat or rephrase text despite the continuation instruction.
 
-## Mock models versus real services
+Continuation is an explicit new request using the answer's original enabled model. It does not automatically retry or replay tool calls. For older messages without a stored reader snapshot, current reader metadata and retained sources are used.
 
-The only models used were `margin-test-model` and `margin-test-alternate`, supplied by the local mock API at `127.0.0.1:18765`. These validate request routing, Chat Completions compatibility, SSE handling, and tool sequences. **No real LLM service was called.** These results do not establish reading quality, provider-specific compatibility, or model reliability. Users can test their chosen model from settings.
+## Release checks
 
-## Release package
+[Package inventory](validation/package-0.3.1.json) confirms the 0.3.1 manifest, both Fluent languages, bundled bilingual continuation/error strings, and absence of runtime, preview, integration code, sessions, credentials, fixture models, and source maps. SHA-256 was generated after the final build. Published assets are downloaded and checked against this hash.
 
-[Package inventory and hash](validation/package-0.3.0.json) confirms version 0.3.0, both Fluent locale directories, and embedded English/Chinese UI catalogs in `plugin.js`. The release archive contains no integration entry point, runtime fixture, preview, session, API credential, environment file, or source map. Test fixtures and keys were also checked against the bundled code.
-
-The checksum is generated after the final build; published asset integrity is checked against this value. There is one universal XPI. No automatic update mechanism was added.
-
-Support remains Zotero 10.0.x with text-layer PDFs. OCR, image understanding, EPUB, snapshots, and cross-document search are outside the current scope.
+One universal XPI is provided. Installation and updates remain manual. Supported scope remains Zotero 10.0.x and PDFs with a text layer.
