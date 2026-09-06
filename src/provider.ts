@@ -1,3 +1,4 @@
+import { CompletionError } from './errors';
 import { t } from "./i18n";
 import type { ChatMessage, Completion, Config, ToolCall, ToolSchema } from "./types";
 
@@ -42,62 +43,100 @@ export async function listModels(baseURL: string, apiKey: string, signal: AbortS
   } finally { clearTimeout(timer); signal.removeEventListener('abort', abort); }
 }
 
+/** Limits for retained content are independent of SSE framing and network chunk sizes. */
+export const RESPONSE_LIMITS = {
+  textChars: 100_000, toolChars: 262_144, eventChars: 1_048_576, transferBytes: 64 * 1024 * 1024,
+};
+type ParseOptions = Partial<typeof RESPONSE_LIMITS> & { onActivity?: () => void };
 /** Parses SSE across arbitrary byte boundaries, including split UTF-8 and CRLF. */
-export async function parseCompletion(response: Response, onText: (text: string) => void, signal: AbortSignal): Promise<Completion> {
-  if (!response.headers.get("content-type")?.includes("text/event-stream")) {
-    const data = await response.json();
-    const choice = data.choices?.[0];
-    if (!choice?.message || data.error) throw new Error(t("模型返回了无法识别的响应，请确认 API 兼容 Chat Completions。"));
-    if (choice.finish_reason === "length") throw new Error(t("模型输出达到长度上限，请缩小问题范围后重试。"));
-    const content = choice.message.content || "";
-    if (content) onText(content);
-    return { content, toolCalls: validateCalls(choice.message.tool_calls || []) };
-  }
-  if (!response.body) throw new Error(t("模型返回空响应。"));
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "", content = "", done = false, finish = "", size = 0;
+export async function parseCompletion(response: Response, onText: (text: string) => void, signal: AbortSignal, options: ParseOptions = {}): Promise<Completion> {
+  const limits = { ...RESPONSE_LIMITS, ...options };
+  if (!response.body) throw new Error(t('模型返回空响应。'));
+  const streaming = response.headers.get('content-type')?.includes('text/event-stream');
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let buffer = '', content = '', done = false, finish = '', size = 0, toolChars = 0;
   const calls = new Map<number, ToolCall>();
-  function event(raw: string) {
-    const payload = raw.split(/\r?\n/).filter(l => l.startsWith("data:")).map(l => l.slice(5).trimStart()).join("\n");
+  function appendText(text: unknown): void {
+    if (text == null) return;
+    if (typeof text !== 'string') throw new CompletionError('stream_invalid');
+    const accepted = text.slice(0, Math.max(0, limits.textChars - content.length));
+    if (accepted) { content += accepted; onText(accepted); }
+    if (accepted.length !== text.length) throw new CompletionError('output_limit');
+  }
+  function appendCall(part: any): void {
+    if (!part || !Number.isInteger(part.index) || part.index < 0 || part.index > 15) throw new CompletionError('stream_invalid');
+    const call = calls.get(part.index) || { id: '', type: 'function' as const, function: { name: '', arguments: '' } };
+    for (const [value, target, key] of [[part.id, call, 'id'], [part.function?.name, call.function, 'name'], [part.function?.arguments, call.function, 'arguments']] as const) {
+      if (value == null) continue;
+      if (typeof value !== 'string') throw new CompletionError('stream_invalid');
+      toolChars += value.length;
+      if (toolChars > limits.toolChars) throw new CompletionError('tool_limit');
+      (target as any)[key] += value;
+    }
+    calls.set(part.index, call);
+  }
+  function event(raw: string): void {
+    if (raw.length > limits.eventChars) throw new CompletionError('event_limit');
+    const payload = raw.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
     if (!payload) return;
-    if (payload === "[DONE]") { done = true; return; }
+    if (payload === '[DONE]') { done = true; return; }
     let chunk: any;
-    try { chunk = JSON.parse(payload); } catch { throw new Error(t("模型返回了损坏的数据流，请重试。")); }
-    if (chunk.error) throw new Error(t("模型服务中断了响应，请重试。"));
-    const choice = chunk.choices?.[0];
+    try { chunk = JSON.parse(payload); } catch { throw new CompletionError('stream_invalid'); }
+    if (chunk?.error) throw new CompletionError('provider_error');
+    const choice = chunk?.choices?.[0];
     if (!choice) return;
     finish = choice.finish_reason || finish;
     const delta = choice.delta || {};
-    if (typeof delta.content === "string") { content += delta.content; onText(delta.content); }
-    for (const part of delta.tool_calls || []) {
-      if (!Number.isInteger(part.index) || part.index < 0 || part.index > 15) throw new Error(t("工具调用格式错误。"));
-      const call = calls.get(part.index) || { id: "", type: "function", function: { name: "", arguments: "" } };
-      if (part.id) call.id += part.id;
-      if (part.function?.name) call.function.name += part.function.name;
-      if (part.function?.arguments) call.function.arguments += part.function.arguments;
-      calls.set(part.index, call);
-    }
+    appendText(delta.content);
+    if (delta.tool_calls != null && !Array.isArray(delta.tool_calls)) throw new CompletionError('stream_invalid');
+    for (const part of delta.tool_calls || []) appendCall(part);
   }
+  // Aborting also releases an outstanding read when a stream implementation does not observe fetch's signal.
+  const abortRead = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener('abort', abortRead, { once: true });
   try {
     while (!done) {
-      if (signal.aborted) throw new Error(t("已停止生成"));
-      const chunk = await reader.read();
-      buffer += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
+      if (signal.aborted) throw new CompletionError('cancelled');
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try { chunk = await reader.read(); } catch { throw new CompletionError(signal.aborted ? 'cancelled' : 'network'); }
+      if (signal.aborted) throw new CompletionError('cancelled');
+      if (chunk.value?.byteLength) options.onActivity?.();
       size += chunk.value?.byteLength || 0;
-      if (size > 2_000_000) throw new Error(t("响应过长，请缩小问题范围。"));
-      let match: RegExpExecArray | null;
-      while ((match = /\r?\n\r?\n/.exec(buffer))) {
-        event(buffer.slice(0, match.index));
-        buffer = buffer.slice(match.index + match[0].length);
-        if (done) break;
+      if (size > limits.transferBytes) throw new CompletionError('transport_limit');
+      buffer += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
+      if (streaming) {
+        let start = 0, match: RegExpExecArray | null;
+        const separator = /\r?\n\r?\n/g;
+        while ((match = separator.exec(buffer))) {
+          event(buffer.slice(start, match.index)); start = separator.lastIndex;
+          if (done) break;
+        }
+        buffer = buffer.slice(start);
       }
-      if (chunk.done) { if (buffer.trim()) event(buffer); break; }
+      // Check the remaining incomplete event after consuming complete events, not the network chunk.
+      if (!done && buffer.length > limits.eventChars) throw new CompletionError('event_limit');
+      if (chunk.done) {
+        if (streaming) { if (buffer.trim()) event(buffer); }
+        else {
+          let data: any;
+          try { data = JSON.parse(buffer); } catch { throw new CompletionError('stream_invalid'); }
+          const choice = data?.choices?.[0];
+          if (!choice?.message || data.error) throw new CompletionError('provider_error');
+          appendText(choice.message.content);
+          finish = choice.finish_reason || '';
+          for (const [index, call] of validateCalls(choice.message.tool_calls || []).entries()) appendCall({ ...call, index });
+          done = true;
+        }
+        break;
+      }
     }
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-  if (!done && !finish) throw new Error(t("连接在回答完成前断开，请重试。"));
-  if (finish === "length") throw new Error(t("模型输出达到长度上限，请缩小问题范围后重试。"));
-  if (finish === "content_filter") throw new Error(t("模型服务未能完成此请求。"));
+  } finally {
+    signal.removeEventListener('abort', abortRead);
+    void reader.cancel().catch(() => {}); reader.releaseLock();
+  }
+  if (!done && !finish) throw new CompletionError('network');
+  if (finish === 'length') throw new CompletionError('model_length');
+  if (finish === 'content_filter') throw new CompletionError('content_filter');
   return { content, toolCalls: validateCalls([...calls.values()]) };
 }
 function validateCalls(calls: any[]): ToolCall[] {
@@ -105,14 +144,19 @@ function validateCalls(calls: any[]): ToolCall[] {
   return calls;
 }
 
-export async function complete(config: Config, messages: ChatMessage[], tools: ToolSchema[], onText: (text: string) => void, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<Completion> {
+export async function complete(config: Config, messages: ChatMessage[], tools: ToolSchema[], onText: (text: string) => void, signal: AbortSignal, fetcher: typeof fetch = fetch, timeouts = { idleMs: 60_000, totalMs: 600_000 }): Promise<Completion> {
   if (!config.model.trim()) throw new Error(t("请先在设置中填写模型名称。"));
   const url = endpoint(config.baseURL);
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal.addEventListener("abort", abort, { once: true });
   if (signal.aborted) abort();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
+  let timeoutCode: 'idle_timeout' | 'total_timeout' | undefined;
+  let idleTimer: ReturnType<typeof setTimeout>;
+  const expire = (code: typeof timeoutCode) => { if (!controller.signal.aborted) { timeoutCode = code; controller.abort(); } };
+  const activity = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => expire('idle_timeout'), timeouts.idleMs); };
+  activity();
+  const timeout = setTimeout(() => expire('total_timeout'), timeouts.totalMs);
   try {
     const response = await fetcher(url, {
       method: "POST", signal: controller.signal, redirect: "error", credentials: "omit",
@@ -120,13 +164,14 @@ export async function complete(config: Config, messages: ChatMessage[], tools: T
       body: JSON.stringify({ model: config.model.trim(), messages, stream: true, ...(tools.length ? { tools, tool_choice: "auto" } : {}) }),
     });
     if (!response.ok) throw new Error(friendlyStatus(response.status));
-    return await parseCompletion(response, onText, controller.signal);
+    activity();
+    return await parseCompletion(response, onText, controller.signal, { onActivity: activity });
   } catch (error) {
-    if (signal.aborted) throw new Error(t("已停止生成"));
-    if (controller.signal.aborted) throw new Error(t("请求超时，请检查网络或换用响应更快的模型。"));
+    if (signal.aborted) throw new CompletionError('cancelled');
+    if (timeoutCode) throw new CompletionError(timeoutCode);
     if (error instanceof TypeError) throw new Error(t("无法连接模型服务，请检查 API 地址和网络。"));
     throw error;
-  } finally { clearTimeout(timeout); signal.removeEventListener("abort", abort); }
+  } finally { clearTimeout(timeout); clearTimeout(idleTimer!); signal.removeEventListener("abort", abort); }
 }
 
 export async function testConnection(config: Config, signal: AbortSignal): Promise<void> {

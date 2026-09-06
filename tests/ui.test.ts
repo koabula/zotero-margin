@@ -247,3 +247,48 @@ test('history keeps complete titles, escapes markup and formats dates in the cur
   assert.equal(sidebar.root.querySelector('textarea')!.value,'keep draft');sidebar.dispose();
 });
 
+
+test('interrupted answers resume in place with the original model, selection, sources and draft preserved',async()=>{
+  const {sidebar,bridge,store,dom,sessions}=setup();
+  store.getConfig=async()=>normalizeConfig({baseURL:'http://localhost/v1',apiKey:'',model:'a',modelIDs:['a','b']});
+  const originalFetch=globalThis.fetch;const payloads:any[]=[];let resumeController:ReadableStreamDefaultController<Uint8Array>;
+  globalThis.fetch=async(_url,init)=>{
+    const payload=JSON.parse(init!.body as string);payloads.push(payload);
+    if(payloads.length===1)return Response.json({choices:[{message:{content:'**原文解释 [[p2]]。'},finish_reason:'length'}]});
+    assert.equal(payload.model,'a');assert.ok(payload.messages.some((m:any)=>m.content==='**原文解释 [[p2]]。'));
+    assert.ok(payload.messages.some((m:any)=>m.content?.includes('Original question') && m.content.includes('Selected passage')));
+    assert.ok(!payload.tools.some((tool:any)=>['create_note','navigate'].includes(tool.function.name)));
+    return new Response(new ReadableStream({start(controller){resumeController=controller;}}),{headers:{'content-type':'text/event-stream'}});
+  };
+  try{
+    await sidebar.attach(bridge);await sidebar.send('Original question');
+    const saved=sessions.get('1-ABCDEFGH')!.messages.at(-1)!;
+    assert.equal(saved.failureCode,'model_length');assert.ok(sidebar.root.querySelector('[data-action="continue"]'));
+    const answer=sidebar.root.querySelector('.margin-assistant')!;
+    const input=sidebar.root.querySelector('textarea')!;input.value='Keep my next question';input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+    const select=sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!;select.value='b';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+    const range=dom.window.document.createRange();range.selectNodeContents(answer.querySelector('.margin-prose')!);const selection=dom.window.getSelection()!;selection.addRange(range);const selected=selection.toString();
+    const continuing=sidebar.send(undefined,saved.id);await tick();
+    assert.equal(select.disabled,true);
+    resumeController!.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"续写完成**"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));resumeController!.close();
+    await continuing;assert.equal(selection.toString(),selected);assert.equal(sidebar.root.querySelector('.margin-assistant'),answer);
+    selection.removeAllRanges();dom.window.document.dispatchEvent(new dom.window.Event('selectionchange'));await new Promise(resolve=>setTimeout(resolve,110));
+    assert.equal(sessions.get('1-ABCDEFGH')!.messages.length,2);const resumed=sessions.get('1-ABCDEFGH')!.messages.at(-1)!;
+    assert.equal(resumed.content,'**原文解释 [[p2]]。续写完成**');assert.equal(resumed.id,saved.id);assert.equal(resumed.status,undefined);
+    assert.equal(input.value,'Keep my next question');assert.equal(select.value,'b');assert.equal(resumed.modelID,'a');assert.ok(resumed.sources.some(source=>source.id==='p2'));
+    assert.equal(sidebar.root.querySelector('[data-action="continue"]'),null);
+  }finally{globalThis.fetch=originalFetch;sidebar.dispose();}
+});
+
+test('legacy partial answers can resume, but removed models and older turns cannot silently resume',async()=>{
+  const {sidebar,bridge,store,sessions}=setup();
+  let config=normalizeConfig({baseURL:'http://localhost/v1',apiKey:'',model:'b'});store.getConfig=async()=>config;
+  sessions.set('1-ABCDEFGH',{version:1,draft:'legacy draft',messages:[{id:'q',role:'user',content:'Original',sources:[]},{id:'old',role:'assistant',content:'Partial ',sources:[],status:'error',modelID:'a'}]});
+  const originalFetch=globalThis.fetch;let requests=0;globalThis.fetch=async()=>{requests++;return Response.json({choices:[{message:{content:'continued'},finish_reason:'stop'}]});};
+  try{
+    await sidebar.attach(bridge);await sidebar.send(undefined,'old');assert.equal(requests,0);assert.match(sidebar.root.querySelector('.margin-error')!.textContent!,/重新启用/);
+    assert.equal(sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!.disabled,false);
+    config=normalizeConfig({...config,modelIDs:['a','b']});await sidebar.send(undefined,'old');assert.equal(requests,1);assert.equal(sessions.get('1-ABCDEFGH')!.messages.at(-1)!.content,'Partial continued');
+    await sidebar.send(undefined,'old');assert.equal(requests,1);
+  }finally{globalThis.fetch=originalFetch;sidebar.dispose();}
+});

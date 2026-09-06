@@ -7,6 +7,24 @@ const server = http.createServer(async (req, res) => {
   let raw = ''; for await (const chunk of req) raw += chunk;
   const data = JSON.parse(raw); const messages = data.messages || [];
   const called = messages.filter(m => m.role === 'assistant').flatMap(m => m.tool_calls || []).map(c => c.function.name);
+  if (['margin-test-long','margin-test-resume'].includes(data.model)) {
+    const entry={model:data.model,kind:data.model,bytes:0,tools:(data.tools || []).map(t=>t.function.name),at:new Date().toISOString()};calls.push(entry);
+    res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache'});
+    const send=value=>{const frame='data: '+JSON.stringify(value)+'\n\n';entry.bytes+=Buffer.byteLength(frame);res.write(frame);};
+    if(data.model==='margin-test-long') {
+      const answer='长回答传输测试，协议开销不应该截断正文。'.repeat(500);
+      for(const content of answer)send({id:'synthetic-large-stream',model:data.model,choices:[{delta:{content,reasoning_content:'ignored metadata '.repeat(12)},finish_reason:null}]});
+      send({choices:[{delta:{},finish_reason:'stop'}]});
+    } else if(entry.tools.includes('create_note')) {
+      send({choices:[{delta:{content:'保留原文引用 [[p3]]。下一部分：**'},finish_reason:'length'}]});
+    } else if(!called.includes('create_note')) {
+      // Deliberately violate the offered schema to verify the agent's execution guard.
+      send({choices:[{delta:{tool_calls:[{index:0,id:'duplicate-note',type:'function',function:{name:'create_note',arguments:'{"title":"Must not save twice","content":"duplicate"}'}},{index:1,id:'duplicate-nav',type:'function',function:{name:'navigate',arguments:'{"page":1}'}}]},finish_reason:'tool_calls'}]});
+    } else {
+      send({choices:[{delta:{content:'续写完成，保留来源。**'},finish_reason:'stop'}]});
+    }
+    res.end('data: [DONE]\n\n');return;
+  }
   const sequence = [
     ['read_pages', { pages: [2, 3] }],
     ['search_document', { query: 'simulator' }],
@@ -27,4 +45,5 @@ const server = http.createServer(async (req, res) => {
   }
   res.end('data: [DONE]\n\n');
 });
-server.listen(18765, '127.0.0.1', () => console.log('Local test model listening on 127.0.0.1:18765'));
+const port=Number(process.argv[2] || 18765);
+server.listen(port, '127.0.0.1', () => console.log('Local test model listening on 127.0.0.1:'+port));

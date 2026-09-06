@@ -49,6 +49,8 @@ export interface DisplayMessage {
   content: string;
   sources: Source[];
   status?: "stopped" | "error";
+  failureCode?: import('./errors').CompletionFailure;
+  requestContext?: ReaderContext;
   contextLabel?: string;
   modelID?: string;
 }

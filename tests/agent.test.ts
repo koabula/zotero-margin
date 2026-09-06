@@ -64,3 +64,21 @@ test("abort stops page search before any further pages are read", async () => {
   bridge.readPage = async i => { reads++; controller.abort(); return { pageIndex: i, pageLabel: "1", text: "x" }; };
   await assert.rejects(agent.execute("search_document", { query: "x" }, controller.signal), /停止/); assert.equal(reads, 1);
 });
+
+test('continuation carries the complete partial answer and sources while enforcing read-only tools',async()=>{
+  let round=0;const partial='A partial explanation '.repeat(500);
+  const source={id:'p65',pageIndex:64,pageLabel:'84',excerpt:'A simulator'};
+  const {agent,navigations,content}=setup(async(messages,available,onText)=>{
+    assert.ok(!available.some(tool=>['navigate','create_note'].includes(tool.function.name)));
+    if(!round++){
+      assert.ok(messages.some(message=>message.role==='assistant' && message.content===partial));
+      assert.ok(messages.some(message=>message.content?.includes('original question') && message.content.includes('p65')));
+      return {content:'',toolCalls:[{id:'n',type:'function',function:{name:'navigate',arguments:'{"page":2}'}},{id:'w',type:'function',function:{name:'create_note',arguments:'{"title":"duplicate","content":"do not save twice"}'}}]};
+    }
+    const results=messages.filter(message=>message.role==='tool');assert.equal(results.length,2);
+    for(const result of results)assert.match(result.content!,/续写仅支持/);
+    onText('continued [[p65]]');return {content:'continued [[p65]]',toolCalls:[]};
+  });
+  await agent.run('original question',[],signal(),{content:partial,sources:[source]});
+  assert.equal(navigations.length,0);assert.equal(content(),'continued [[p65]]');assert.ok(agent.getSources().some(s=>s.id==='p65'));
+});

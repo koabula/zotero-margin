@@ -1,3 +1,4 @@
+import { CompletionError } from './errors';
 import { t, L, refreshTranslations, onLanguageChange, getLanguage, getLocale, setLanguage, translateKnown, type MessageKey } from "./i18n";
 import { ReadingAgent } from "./agent";
 import { setMarkup } from "./dom";
@@ -173,6 +174,7 @@ export class Sidebar {
     }
     if (input.name === 'defaultModel') this.settingsDefault = input.value;
   }
+  private canContinue(message: DisplayMessage): boolean { return message.role === 'assistant' && !!message.status && !!message.content.trim() && message.failureCode !== 'content_filter' && this.session.messages.at(-1) === message; }
   private renderMessages(): void {
     if (this.disposed) return;
     const transcript = this.el(".margin-transcript");
@@ -185,12 +187,12 @@ export class Sidebar {
     }
     const markupFor = (m: DisplayMessage) => m.role === "user"
       ? `<article class="margin-user" data-message="${escapeHTML(m.id)}"><div>${escapeHTML(m.content).replace(/\n/g, "<br/>")}</div>${m.contextLabel ? `<small>${escapeHTML(m.contextLabel)}</small>` : ""}</article>`
-      : `<article class="margin-assistant" data-message="${escapeHTML(m.id)}"><div class="margin-prose">${m.content ? renderMarkdown(m.content, m.sources) : '<span class="margin-thinking"><i></i><i></i><i></i></span>'}</div>${m.modelID ? `<div class="margin-answer-model">${escapeHTML(m.modelID)}</div>` : ""}${m.status ? `<div class="margin-message-status">${L(m.status === "stopped" ? "已停止 · 保留已生成内容" : "本次回答未完成")}</div>` : ""}${m.content ? `<div class="margin-message-actions">${button("copy", "复制回答", "copy")}${button("save-answer", "保存为文献笔记", "note")}${m.sources.length ? `<details><summary>${L('{count} 处参考',{count:m.sources.length})}</summary><div class="margin-source-list">${m.sources.map(s => `<button type="button" data-source="${escapeHTML(s.id)}">${L('第 {page} 页',{page:s.pageLabel})} <small>PDF ${s.pageIndex + 1}</small></button>`).join("")}</div></details>` : ""}</div>` : ""}</article>`;
+      : `<article class="margin-assistant" data-message="${escapeHTML(m.id)}"><div class="margin-prose">${m.content ? renderMarkdown(m.content, m.sources) : '<span class="margin-thinking"><i></i><i></i><i></i></span>'}</div>${m.modelID ? `<div class="margin-answer-model">${escapeHTML(m.modelID)}</div>` : ""}${m.status ? `<div class="margin-message-status">${L(m.status === "stopped" ? "已停止 · 保留已生成内容" : "本次回答未完成")}</div>` : ""}${m.content ? `<div class="margin-message-actions">${button("copy", "复制回答", "copy")}${button("save-answer", "保存为文献笔记", "note")}${this.canContinue(m) ? `<button type="button" class="margin-secondary" data-action="continue" data-i18n-title="使用此回答的原模型继续生成，仅查阅原文。" title="${t("使用此回答的原模型继续生成，仅查阅原文。")}">${L("继续生成")}</button>` : ""}${m.sources.length ? `<details><summary>${L('{count} 处参考',{count:m.sources.length})}</summary><div class="margin-source-list">${m.sources.map(s => `<button type="button" data-source="${escapeHTML(s.id)}">${L('第 {page} 页',{page:s.pageLabel})} <small>PDF ${s.pageIndex + 1}</small></button>`).join("")}</div></details>` : ""}</div>` : ""}</article>`;
     transcript.querySelector('.margin-welcome')?.remove();
     const ids = new Set(this.session.messages.map(m => m.id));
     for (const [id, entry] of this.messageNodes) if (!ids.has(id)) { entry.node.remove(); this.messageNodes.delete(id); }
     for (const message of this.session.messages) {
-      const revision = JSON.stringify(message);
+      const revision = JSON.stringify([message,this.canContinue(message)]);
       const markup = markupFor(message);
       let entry = this.messageNodes.get(message.id);
       if (!entry) {
@@ -207,10 +209,10 @@ export class Sidebar {
     if (nearBottom && !this.selection.blocks()) transcript.scrollTop = transcript.scrollHeight;
   }
   private scheduleRender(): void { if (!this.renderTimer) this.renderTimer = setTimeout(() => { this.renderTimer = undefined; this.renderMessages(); }, 80); }
-  private status(text: string): void {
+  private status(text: string, success = true): void {
     if (this.disposed) return;
     if (this.logs.at(-1) !== text) this.logs.push(text);
-    setMarkup(this.el(".margin-status"), `<details><summary>${this.controller ? '<span class="margin-status-dot"></span>' : icon("check")}${escapeHTML(text)}</summary><div>${this.logs.slice(-8).map(l => `<p>${escapeHTML(l)}</p>`).join("")}</div></details>`);
+    setMarkup(this.el(".margin-status"), `<details><summary>${this.controller ? '<span class="margin-status-dot"></span>' : icon(success ? "check" : "close")}${escapeHTML(text)}</summary><div>${this.logs.slice(-8).map(l => `<p>${escapeHTML(l)}</p>`).join("")}</div></details>`);
   }
   private error(error: unknown): void {
     if (this.disposed) return;
@@ -228,10 +230,15 @@ export class Sidebar {
     send.setAttribute("aria-label", value ? t("停止生成") : t("发送问题"));
     this.root.classList.toggle("margin-is-busy", value); this.updateModel();
   }
-  async send(question?: string): Promise<void> {
+  async send(question?: string, resumeID?: string): Promise<void> {
     if (this.controller || this.preparing || !this.bridge || !this.context) return;
     const input = this.el<HTMLTextAreaElement>("textarea");
-    const text = (question ?? input.value).trim();
+    const resume = resumeID ? this.session.messages.find(message => message.id === resumeID) : undefined;
+    if (resumeID && (!resume || !this.canContinue(resume))) return;
+    const resumeIndex = resume ? this.session.messages.indexOf(resume) : -1;
+    let questionIndex = resumeIndex - 1;
+    while (questionIndex >= 0 && this.session.messages[questionIndex].role !== 'user') questionIndex--;
+    const text = (resume ? this.session.messages[questionIndex]?.content || '' : question ?? input.value).trim();
     if (!text) return;
     if (text.length > 12000) { this.error(new Error(t("问题过长，请控制在 12000 字以内。"))); return; }
     this.clearError();
@@ -244,14 +251,21 @@ export class Sidebar {
     try { bridge.assertActive(); context = await bridge.context(); bridge.assertActive(); } catch (e) { this.preparing = false; this.updateModel(); this.error(e); return; }
     this.preparing = false;
     if (this.disposed || bridge !== this.bridge || requestSession !== this.session) return;
-    const config = { ...this.config, model: this.session.modelID || this.config.defaultModelID };
-    if (!this.includeSelection) context.selection = "";
+    const config = { ...this.config, model: resume?.modelID || this.session.modelID || this.config.defaultModelID };
+    if (!this.config.modelIDs.includes(config.model)) { this.updateModel(); this.error(new Error(t('请先重新启用这条回答使用的模型，再继续生成。'))); return; }
+    if (resume?.requestContext && resume.requestContext.attachmentKey === context.attachmentKey && resume.requestContext.libraryID === context.libraryID) context = resume.requestContext;
+    if (!resume && !this.includeSelection) context.selection = "";
     this.context = context;
     const controller = new AbortController(); this.controller = controller;
-    const history = [...this.session.messages];
-    const answer: DisplayMessage = { id: uid(), role: "assistant", content: "", sources: [], modelID: config.model };
+    const history = resume ? this.session.messages.slice(0,questionIndex) : [...this.session.messages];
+    const continuation = resume ? {content:resume.content,sources:[...resume.sources]} : undefined;
+    const answer: DisplayMessage = resume || { id: uid(), role: "assistant", content: "", sources: [], modelID: config.model, requestContext: { ...context } };
+    answer.modelID ??= config.model; answer.requestContext ??= { ...context };
+    answer.status = undefined; answer.failureCode = undefined;
+    if (!resume) {
     this.session.messages.push({ id: uid(), role: "user", content: text, sources: [], contextLabel: t('第 {page} 页',{page:context.pageLabel})+(context.selection?t(' · 已选文字'):'') }, answer);
     input.value = ""; input.style.height = "auto"; this.session.draft = "";
+    }
     this.logs = []; this.busy(true); this.renderMessages();
     const transcript = this.el(".margin-transcript"); transcript.scrollTop = transcript.scrollHeight;
     const agent = new ReadingAgent(bridge, context, (messages, tools, onText, signal) => complete(config, messages, tools, onText, signal), {
@@ -260,10 +274,10 @@ export class Sidebar {
       sources: sources => { answer.sources = sources; },
       note: (title, content, sources, signal) => this.reviewNote(title, content, sources, signal),
     });
-    try { await agent.run(text, history, controller.signal); }
-    catch (error) { answer.status = controller.signal.aborted ? "stopped" : "error"; if (!controller.signal.aborted) this.error(error); }
+    try { await agent.run(text, history, controller.signal, continuation); }
+    catch (error) { answer.failureCode = error instanceof CompletionError ? error.code : undefined; answer.status = controller.signal.aborted ? "stopped" : "error"; if (!controller.signal.aborted) this.error(error); }
     finally {
-      if (this.controller === controller) { this.controller = undefined; this.busy(false); this.status(answer.status === "stopped" ? t("已停止") : answer.status === "error" ? t("请求未完成，可再次提问") : t("回答完成")); }
+      if (this.controller === controller) { this.controller = undefined; this.busy(false); this.status(answer.status === "stopped" ? t("已停止") : answer.status === "error" ? t("请求未完成，可再次提问") : t("回答完成"), !answer.status); }
       this.renderMessages(); await this.persist().catch(e => this.error(e));
     }
   }
@@ -297,6 +311,7 @@ export class Sidebar {
   }
   private message(target: HTMLElement): DisplayMessage | undefined { return this.session.messages.find(m => m.id === target.closest<HTMLElement>("[data-message]")?.dataset.message); }
   private async action(action: string, target: HTMLElement): Promise<void> {
+    if (action === 'continue') { const message=this.message(target); if(message) await this.send(undefined,message.id); return; }
     if (action === 'fetch-models') {
       if (this.discoveryController) { this.discoveryController.abort(); return; }
       const baseURL = this.el<HTMLInputElement>('[name="baseURL"]').value.trim();

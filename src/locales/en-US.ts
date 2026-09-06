@@ -1,5 +1,17 @@
 import type { zhCN } from "./zh-CN";
 export const enUS: Record<keyof typeof zhCN, string> = {
+  "模型输出达到上限，已保留生成内容，可继续生成。": "The model reached its output limit. Your partial answer is saved; you can continue generating.",
+  "回答达到插件的文字上限，已保留生成内容，可继续生成。": "The answer reached the plugin text limit. Your partial answer is saved; you can continue generating.",
+  "响应数据达到插件的传输保护上限，已保留生成内容。": "The response reached the plugin transfer limit. Your partial answer is saved.",
+  "服务返回的单条响应数据过大，插件已停止接收。": "A response event exceeded the plugin safety limit. Receiving has stopped.",
+  "服务返回的工具参数过大，插件已停止执行。": "Tool arguments exceeded the plugin safety limit. Tool execution has stopped.",
+  "响应连接中断，已保留生成内容，请检查网络后继续。": "The response connection was interrupted. Your partial answer is saved; check your network before continuing.",
+  "模型服务长时间没有返回数据，已保留生成内容，可重试或继续。": "The model service stopped sending data. Your partial answer is saved; retry or continue.",
+  "本次模型请求达到总时限，已保留生成内容，可继续生成。": "The model request reached its time limit. Your partial answer is saved; you can continue generating.",
+  "使用此回答的原模型继续生成，仅查阅原文。": "Continue with this answer's original model, using read-only document tools.",
+  "继续生成": "Continue generating",
+  "请先重新启用这条回答使用的模型，再继续生成。": "Re-enable the model used for this answer before continuing.",
+  "续写仅支持查阅原文，不会跳页或保存笔记。": "Continuation can only read the document; it cannot navigate or save notes.",
   "打开一篇文献": "Open a document",
   "打开文献开始阅读": "Open a document to begin",
   "助手操作": "Assistant actions",

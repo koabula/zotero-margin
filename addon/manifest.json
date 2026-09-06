@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Margin · 页伴",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "与文献一起思考。支持用户自备 API、原文引用、阅读器定位与笔记。",
   "author": "Margin Contributors",
   "icons": {

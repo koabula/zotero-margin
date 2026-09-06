@@ -52,6 +52,9 @@
     await record('session-persistence', { key });
     await reader.setContextPaneOpen(true);
     const panel = await until(() => [...win.document.querySelectorAll('.margin-app')].find(p => p.closest('item-details')?.tabID === reader.tabID), 'sidebar');
+    // Refresh cached panels after the fixture writes legacy settings directly through the store.
+    await Zotero.Notifier.trigger('select','tab',[reader.tabID]);
+    await until(()=>panel.querySelectorAll('.margin-model option').length===1 && panel.querySelector('.margin-model').value==='margin-test-model','fixture config propagated');
     const details = panel.closest('item-details');
     const section = panel.closest('item-pane-custom-section');
     const pinnedBefore = details.pinnedPane;
@@ -259,6 +262,45 @@
     reloadedPanel.querySelector('[data-action="history"]').click();await capture('history-zh');
     await record('native-capture-availability',{snapshot:typeof win.browsingContext?.currentWindowGlobal?.drawSnapshot,drawWindow:typeof win.document.createElementNS('http://www.w3.org/1999/xhtml','canvas').getContext('2d').drawWindow});
     await record('native-plugin-cleanup',{shutdownRemovedUI:true,stylesRemoved:true,pinnedUnchanged:true,reloaded:true});
+    async function selectRegressionModel(model) {
+      reloadedPanel.querySelector('[data-action="settings"]').click();
+      reloadedPanel.querySelector('[name="baseURL"]').value='http://127.0.0.1:18765/v1';
+      reloadedPanel.querySelector('[name="manualModel"]').value=model;reloadedPanel.querySelector('[data-action="add-model"]').click();
+      reloadedPanel.querySelector('[data-action="save-settings"]').click();await until(()=>reloadedPanel.querySelector('.margin-settings').hidden,'regression settings saved');
+      const select=reloadedPanel.querySelector('.margin-model');select.value=model;select.dispatchEvent(new win.Event('change',{bubbles:true}));
+    }
+    async function askRegression(question) {
+      const before=reloadedPanel.querySelector('.margin-assistant:last-child')?.dataset.message;
+      const textarea=reloadedPanel.querySelector('textarea');textarea.value=question;textarea.dispatchEvent(new win.Event('input',{bubbles:true}));
+      reloadedPanel.querySelector('form').dispatchEvent(new win.Event('submit',{bubbles:true,cancelable:true}));
+      await until(()=>reloadedPanel.querySelector('.margin-assistant:last-child')?.dataset.message!==before && reloadedPanel.querySelector('.margin-assistant:last-child') && !reloadedPanel.classList.contains('margin-is-busy'),'regression request ended',300);
+    }
+    await selectRegressionModel('margin-test-long');await askRegression('Large stream regression');
+    assert(reloadedPanel.querySelector('.margin-error').hidden,'large stream completes without error');
+    const longText=reloadedPanel.querySelector('.margin-assistant .margin-prose').textContent.trim();
+    assert(longText==='长回答传输测试，协议开销不应该截断正文。'.repeat(500),'all long response text retained: '+longText.length);
+    const service=await (await fetch('http://127.0.0.1:18765/health')).json();const longCall=service.calls.findLast(call=>call.model==='margin-test-long');
+    assert(longCall.bytes>2000000,'native HTTP stream exceeds old limit');
+    await record('native-large-response',{bytes:longCall.bytes,characters:longText.length,completed:true});
+    reloadedPanel.querySelector('[data-action="new"]').click();await until(()=>reloadedPanel.querySelector('.margin-welcome'),'new recovery conversation');
+    await selectRegressionModel('margin-test-resume');await askRegression('Continue an interrupted source-based answer');
+    const partial=reloadedPanel.querySelector('.margin-assistant');const partialID=partial.dataset.message;
+    assert(reloadedPanel.querySelector('[data-action="continue"]'),'native continue button visible');
+    assert(reloadedPanel.querySelector('.margin-error').textContent.includes('模型输出达到上限'),'model limit distinguished');
+    await capture('interrupted-0.3.1');
+    const draftInput=reloadedPanel.querySelector('textarea');draftInput.value='Keep this unsent draft';draftInput.dispatchEvent(new win.Event('input',{bubbles:true}));
+    const notesBefore=item.getNotes().length,pageBefore=(await bridge.context()).pageIndex;
+    reloadedPanel.querySelector('[data-action="continue"]').click();
+    await until(()=>(partial.textContent.includes('续写完成') || !reloadedPanel.querySelector('.margin-error').hidden) && !reloadedPanel.classList.contains('margin-is-busy'),'native continuation completed');
+    assert(reloadedPanel.querySelector('.margin-error').hidden,'continuation no error');
+    assert(reloadedPanel.querySelector('.margin-assistant')===partial && partial.dataset.message===partialID,'same native answer node');
+    assert(partial.textContent.includes('续写完成'),'native continuation appended');
+    assert(!reloadedPanel.querySelector('[data-action="continue"]'),'completed answer has no continue button');
+    assert(draftInput.value==='Keep this unsent draft','continuation keeps native input draft');
+    assert(item.getNotes().length===notesBefore && (await bridge.context()).pageIndex===pageBefore,'no repeated native note or navigation');
+    assert(reloadedPanel.querySelector('.margin-citation'),'continuation retains source links');
+    await capture('continued-0.3.1');
+    await record('native-continuation',{sameMessage:true,draftPreserved:true,citations:true,notesUnchanged:true,pageUnchanged:true,unofferedWriteToolsRejected:true});
     await IOUtils.writeJSON(file, { ok: true, results, finishedAt: new Date().toISOString() });
     win.document.title = 'Margin — Integration verified';
   } catch (error) {
