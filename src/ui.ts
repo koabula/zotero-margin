@@ -403,7 +403,13 @@ export class Sidebar {
   }
   private openHistory(): void {
     this.setView("history");
-    setMarkup(this.el(".margin-history"), `<div class="margin-section-heading">${button("back", "返回对话", "back")}<span>${L('这篇文献的对话')}</span></div><p class="margin-settings-intro">${L('每次新对话，都会留在这里。')}</p>${this.session.archives?.length ? this.session.archives.map((a, i) => `<button class="margin-history-item" data-action="restore" data-index="${i}"><strong>${escapeHTML(a.messages.find(m => m.role === "user")?.content.slice(0, 80) || t("阅读对话"))}</strong><small>${escapeHTML(new Date(a.createdAt).toLocaleString(getLocale()))} · ${t('{count} 条消息',{count:a.messages.length})}</small></button>`).join("") : `<div class="margin-history-empty">${L('还没有历史对话')}</div>`}`);
+    const items = this.session.archives?.map((archive, index) => {
+      const title = archive.messages.find(message => message.role === 'user')?.content || t('阅读对话');
+      const date = new Date(archive.createdAt);
+      const formattedDate = date.toLocaleString(getLocale());
+      return `<button type="button" class="margin-history-item" data-action="restore" data-index="${index}" title="${escapeHTML(title)}"><strong class="margin-history-title">${escapeHTML(title)}</strong><span class="margin-history-meta"><time datetime="${escapeHTML(archive.createdAt)}">${escapeHTML(formattedDate)}</time><span>${L(archive.messages.length===1?'1 条消息':'{count} 条消息',{count:archive.messages.length})}</span></span></button>`;
+    }).join('');
+    setMarkup(this.el('.margin-history'), `<div class="margin-section-heading">${button('back','返回对话','back')}<span>${L('这篇文献的对话')}</span></div><p class="margin-settings-intro">${L('每次新对话，都会留在这里。')}</p><div class="margin-history-list">${items || `<div class="margin-history-empty">${L('还没有历史对话')}</div>`} </div>`);
   }
   focusInput(): void { this.setView("chat"); this.host.focusPane?.(); this.el("textarea").focus(); }
   dispose(): void { this.unsubscribeLanguage(); this.stop(); this.connectionController?.abort(); this.discoveryController?.abort(); this.selection.dispose(); clearTimeout(this.renderTimer); clearTimeout(this.saveTimer); void this.persist().catch(() => {}); this.disposed = true; this.root.remove(); }

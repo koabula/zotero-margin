@@ -147,6 +147,7 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   "第 {page} 页": "Page {page}",
   "PDF 第 {page} 页": "PDF page {page}",
   "{count} 处参考": "{count} sources",
+  "1 条消息": "1 message",
   "{count} 条消息": "{count} messages",
   "获取到 {count} 个模型，请勾选需要的模型。": "Found {count} models. Select the models you want to use.",
   "模型服务返回 HTTP {status}，请检查配置后重试。": "The model service returned HTTP {status}. Check your settings and retry.",

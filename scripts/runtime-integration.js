@@ -110,6 +110,13 @@
     const selection=win.getSelection(); const range=win.document.createRange();range.selectNodeContents(selectedParagraph);
     panel.querySelector('textarea').blur(); selection.removeAllRanges(); selection.addRange(range);
     const selectedText=selection.toString();
+    panel.querySelector('[data-action="settings"]').click();
+    const streamingLanguage=panel.querySelector('[name="language"]');streamingLanguage.value='en-US';streamingLanguage.dispatchEvent(new win.Event('change',{bubbles:true}));
+    await until(()=>panel.lang==='en-US','streaming language update');
+    assert(selection.toString()===selectedText && selectedParagraph.isConnected,'native language switch keeps streaming selection');
+    streamingLanguage.value='auto';streamingLanguage.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>panel.lang==='zh-CN','restore automatic language');
+    panel.querySelector('.margin-settings [data-action="back"]').click();
+    await record('native-stream-language',{selectionPreserved:true,modelLocked:modelSelect.disabled});
     await new Promise(r=>setTimeout(r,300));
     assert(selection.toString()===selectedText && selectedParagraph.isConnected,'stream preserves selection');
     selection.removeAllRanges();
@@ -153,6 +160,7 @@
     await until(()=>!details.hasAttribute('data-margin-active'),'old reader layout cleared');
     const secondPanel=await until(()=>[...win.document.querySelectorAll('.margin-app')].find(p=>p.closest('item-details')?.tabID===secondReader.tabID),'second sidebar');
     const secondDetails=secondPanel.closest('item-details');
+    secondPanel.querySelector('[data-action="history"]').click();assert(secondPanel.querySelector('.margin-history-empty'),'empty history');secondPanel.querySelector('.margin-history [data-action="back"]').click();
     [...nav.querySelectorAll('[data-pane]')].find(n=>n.dataset.pane===section.paneID).click();
     await until(()=>secondPanel.querySelector('.margin-document-title').textContent.includes('Second document'),'new document title');
     assert(secondPanel.querySelectorAll('.margin-assistant').length===0,'document conversations isolated');
@@ -189,6 +197,13 @@
     assert(!win.document.querySelector('.margin-app,[data-margin-active],link[data-margin-style]'),'shutdown removes UI and styles');
     assert(details.pinnedPane===pinnedBefore,'shutdown preserves pinned panel');
     await until(()=>!section.isConnected,'native section unregistered');
+    // Fixture content is confined to the isolated profile.
+    await new Promise(resolve=>setTimeout(resolve,300));
+    const liveKey=context.libraryID+'-'+context.attachmentKey;
+    const fixtureSession=await store.loadSession(liveKey);
+    const titles=['帮我梳理一下 2.3 节的内容','梳理一下 2.3 节的内容','Explain the definition of a simulator and compare it with the previous theorem. '.repeat(4),'Indistinguishability'.repeat(30),'长标题：请结合文献中的定义、例子和我的批注，解释理想世界与真实世界的关系。'.repeat(5)];
+    fixtureSession.archives=titles.map((content,index)=>({createdAt:'2026-12-31T23:59:59.000Z',modelID:'margin-test-alternate',messages:[{id:'history-'+index,role:'user',content,sources:[]}]}));
+    await store.saveSession(liveKey,fixtureSession);
     await Margin.startup({id:'margin@zotero.local',rootURI});
     await until(()=>[...win.document.querySelectorAll('.margin-app')].find(p=>p.closest('item-details')?.tabID===reader.tabID),'plugin reload');
     [...nav.querySelectorAll('[data-pane]')].find(n=>n.dataset.pane===section.paneID).click();
@@ -196,6 +211,53 @@
     assert(reloadedPanel.lang==='en-US','language persists across plugin restart');
     await until(()=>[...nav.querySelectorAll('[data-pane]')].find(n=>n.dataset.pane===section.paneID)?.getAttribute('title')==='AI reading companion','native navigation localized');
     await record('native-language-restart',{locale:reloadedPanel.lang,preference:await store.getLanguage()});
+    const historyChecks=[];
+    const originalFont=Zotero.Prefs.get('fontSize');
+    async function historyBounds(locale,width,fontSize) {
+      contextPane.style.width=width+'px';contextPane.style.minWidth=width+'px';
+      Zotero.Prefs.set('fontSize',fontSize);Zotero.setFontSize(win.document.documentElement);
+      reloadedPanel.querySelector('[data-action="settings"]').click();
+      const picker=reloadedPanel.querySelector('[name="language"]');picker.value=locale;picker.dispatchEvent(new win.Event('change',{bubbles:true}));
+      await until(()=>reloadedPanel.lang===locale,'history locale');
+      reloadedPanel.querySelector('[data-action="history"]').click();
+      contextPane.style.width=width+'px';contextPane.style.minWidth=width+'px';contextPane.style.maxWidth=width+'px';
+      await new Promise(resolve=>setTimeout(resolve,180));
+      assert(Math.abs(contextPane.getBoundingClientRect().width-width)<2,'native sidebar width applied');
+      if(fontSize===20)for(const node of reloadedPanel.querySelectorAll('.margin-history-title,.margin-history-meta'))node.style.fontSize='20px';
+      const rows=[...reloadedPanel.querySelectorAll('.margin-history-item')];
+      assert(rows.length===5,'fixture history rows');
+      const measurements=rows.map((row,index)=>{
+        const title=row.querySelector('.margin-history-title'),meta=row.querySelector('.margin-history-meta');
+        const r=row.getBoundingClientRect(),tr=title.getBoundingClientRect(),mr=meta.getBoundingClientRect();
+        assert(tr.bottom<=mr.top+1,'title and metadata do not overlap');
+        assert(mr.bottom<=r.bottom+1,'metadata inside button');
+        if(index<rows.length-1)assert(r.bottom<=rows[index+1].getBoundingClientRect().top+1,'adjacent rows do not overlap');
+        assert(title.scrollWidth<=title.clientWidth+1,'long word does not overflow');
+        assert(tr.height<=parseFloat(win.getComputedStyle(title).lineHeight)*2+1,'title clamps to two lines');
+        assert(row.title===titles[index],'full title tooltip');
+        return {width:r.width,height:r.height,titleHeight:tr.height,metaHeight:mr.height,font:win.getComputedStyle(title).fontSize};
+      });
+      assert(reloadedPanel.scrollHeight<=reloadedPanel.clientHeight+1,'no outer history scrolling');
+      rows[0].focus();assert(win.document.activeElement===rows[0],'history keyboard focus');
+      historyChecks.push({locale,width,fontSize,measurements});
+    }
+    for(const locale of ['zh-CN','en-US'])for(const width of [260,320,520])for(const fontSize of [13,20])await historyBounds(locale,width,fontSize);
+    Zotero.Prefs.set('fontSize',originalFont);Zotero.setFontSize(win.document.documentElement);
+    contextPane.style.width='410px';contextPane.style.minWidth='410px';contextPane.style.maxWidth='410px';
+    reloadedPanel.querySelector('[data-action="history"]').click();
+    await record('native-history-bounds',{cases:historyChecks,emptyHistory:true,fullTitles:true,focusable:true});
+    async function capture(name) {
+      const rect=reloadedPanel.getBoundingClientRect();
+      const canvas=win.document.createElementNS('http://www.w3.org/1999/xhtml','canvas');canvas.width=Math.ceil(rect.width);canvas.height=Math.ceil(rect.height);
+      canvas.getContext('2d').drawWindow(win,rect.x,rect.y,rect.width,rect.height,'white');
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+      await IOUtils.write(PathUtils.join(RUNTIME_DIR,name+'.png'),new Uint8Array(await blob.arrayBuffer()));
+    }
+    await capture('history-en');
+    reloadedPanel.querySelector('[data-action="settings"]').click();await capture('settings-en');
+    const zhPicker=reloadedPanel.querySelector('[name="language"]');zhPicker.value='zh-CN';zhPicker.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>reloadedPanel.lang==='zh-CN','Chinese capture');
+    reloadedPanel.querySelector('[data-action="history"]').click();await capture('history-zh');
+    await record('native-capture-availability',{snapshot:typeof win.browsingContext?.currentWindowGlobal?.drawSnapshot,drawWindow:typeof win.document.createElementNS('http://www.w3.org/1999/xhtml','canvas').getContext('2d').drawWindow});
     await record('native-plugin-cleanup',{shutdownRemovedUI:true,stylesRemoved:true,pinnedUnchanged:true,reloaded:true});
     await IOUtils.writeJSON(file, { ok: true, results, finishedAt: new Date().toISOString() });
     win.document.title = 'Margin — Integration verified';

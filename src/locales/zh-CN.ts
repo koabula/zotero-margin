@@ -147,6 +147,7 @@ export const zhCN = {
   "第 {page} 页": "第 {page} 页",
   "PDF 第 {page} 页": "PDF 第 {page} 页",
   "{count} 处参考": "{count} 处参考",
+  "1 条消息": "1 条消息",
   "{count} 条消息": "{count} 条消息",
   "获取到 {count} 个模型，请勾选需要的模型。": "获取到 {count} 个模型，请勾选需要的模型。",
   "模型服务返回 HTTP {status}，请检查配置后重试。": "模型服务返回 HTTP {status}，请检查配置后重试。",

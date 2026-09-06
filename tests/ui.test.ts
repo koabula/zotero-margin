@@ -229,3 +229,21 @@ test('switching language during streaming preserves selected answer DOM, draft, 
     assert.ok(sidebar.root.querySelector('.margin-status')!.textContent?.includes('Response complete'));
   } finally {globalThis.fetch=originalFetch;sidebar.dispose();}
 });
+
+
+test('history keeps complete titles, escapes markup and formats dates in the current language', async () => {
+  const {sidebar,bridge,sessions}=setup();
+  const title='A very long question '.repeat(12)+'<img src=x onerror=alert(1)> "quoted"';
+  sessions.set('1-ABCDEFGH',{version:1,draft:'keep draft',messages:[],archives:[{createdAt:'2026-12-31T23:59:59Z',messages:[{id:'old',role:'user',content:title,sources:[]}]}]});
+  await sidebar.attach(bridge);setLanguage('en-US');
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="history"]')!.click();
+  let row=sidebar.root.querySelector<HTMLButtonElement>('.margin-history-item')!;
+  assert.equal(row.title,title);assert.equal(row.querySelector('strong')!.textContent,title);
+  assert.equal(row.querySelector('img'),null);assert.ok(row.textContent!.includes('1 message'));
+  assert.equal(row.querySelector('time')!.textContent,new Date('2026-12-31T23:59:59Z').toLocaleString('en-US'));
+  setLanguage('zh-CN');row=sidebar.root.querySelector<HTMLButtonElement>('.margin-history-item')!;
+  assert.equal(row.title,title);assert.equal(row.querySelector('time')!.textContent,new Date('2026-12-31T23:59:59Z').toLocaleString('zh-CN'));
+  row.click();await tick();assert.equal(sidebar.root.querySelector('.margin-user div')!.textContent,title);
+  assert.equal(sidebar.root.querySelector('textarea')!.value,'keep draft');sidebar.dispose();
+});
+
