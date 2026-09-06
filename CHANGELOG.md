@@ -1,3 +1,14 @@
+# 0.3.0 — 2026-09-06
+
+- Added English and Simplified Chinese in one universal XPI. Follow Zotero by default, or change the language independently in settings.
+- Language changes update open panels while preserving drafts, models, conversation content, and streaming selections.
+- Fixed overlapping conversation history entries caused by Zotero's fixed native button height. Titles clamp to two lines; dates and message counts wrap with content-driven row height.
+- Added an English project homepage and development guide, with linked Chinese versions.
+- Validated with 37 automated tests and isolated native Zotero 10.0.1 integration. Model tests use a local mock service, not a real LLM.
+- Updates remain manual; no automatic update mechanism was added.
+
+中文：单包增加中英文切换，修复历史条目重叠，提供双语首页与开发说明。语言独立保存，切换保留草稿、模型及流式选区。
+
 # 0.2.0
 
 - 助手独占右侧内容区并自适应尺寸，保留 Zotero 导航和原生面板设置。

@@ -1,40 +1,59 @@
-# Margin 0.2.0 验收记录
+# Margin 0.3.0 validation
 
-日期：2026-09-05。交付包：`dist/margin-0.2.0.xpi`，1,100,713 字节。
+Date: 2026-09-06. Platform: Windows, Zotero **10.0.1**, Node.js 24.19.0.
 
-SHA-256：`f4b6fcc3e92d5a54f4725c69284ffc2c48c50a8122dd41876489237112b36a33`
+Release: `margin-0.3.0.xpi` — **1,108,820 bytes**, 77 entries.
 
-## 需求与证据
+SHA-256: `6b181f79920a2a9fa858412d9dfa4482cd56307f52b4048d39e0b9601a8cfcbe`
 
-| 需求 | 实现及验证 |
+## Automated checks
+
+`npm run check` passed: TypeScript, **37 tests**, and XPI build.
+
+| Area | Evidence |
 | --- | --- |
-| 全高原生侧栏 | Zotero 10.0.1 内实际测量：助手顶部、底部与右侧内容区对齐，右边缘止于导航栏左侧。侧栏宽度 320、410、520 CSS 像素均通过；窗口缩至 1100×700 后输入框仍在可见范围，长回答仅在对话区滚动，外层没有滚动溢出。 |
-| 原生面板恢复 | 点击其他导航后清除独占布局，折叠重开正常；文献切换清除旧阅读器状态，标题和会话与附件对应。关闭第二篇文献后面板销毁。固定面板值在前后保持一致，源码没有修改排序或固定偏好的逻辑。 |
-| 停用与清理 | 原生调用插件 shutdown 后，助手节点、激活状态和样式全部移除，固定设置保留；等待 Zotero 完成异步注销后重新加载成功。 |
-| 选区提问入口 | 原生集成测试通过 Zotero 的阅读器事件分发器触发选区弹窗扩展回调，点击生成的“问问 Margin”按钮后，助手恢复独占布局并聚焦输入框。 |
-| 原生文字选择与复制 | 在真实 Zotero 中通过 DOM Range 和键盘事件核验中文、英文、代码、多段文字，读取系统剪贴板逐字比较；仅统一 Windows CRLF 与 DOM LF 换行表示。右键复制通过。另以实际鼠标跨段拖选、Ctrl+C、在输入框 Ctrl+V 验证中英文内容正确。 |
-| 流式选区保护 | 原生测试在生成中选中段落，后续流式内容继续接收，选中文字和节点保持不变；清除选区后补齐回答。单元测试确认后续问答不重建旧消息节点，复制处理不截获助手外或输入框的选区。 |
-| 获取模型与迁移 | 单元测试覆盖带路径前缀和完整 Chat Completions 地址、当前未保存密钥、GET 无文献正文、重复 ID、空列表、认证失败、不支持接口、损坏响应、取消和超时。超时测试注入 10ms，生产默认 15 秒。旧单模型归一化为一个启用模型和默认模型；原生凭据及旧草稿读写通过。 |
-| 多选、默认与模型切换 | 原生获取两个模拟模型并保存；整轮 Agent 的实际请求全部使用聊天选择的模型。生成期间禁止切换，新对话用默认模型，历史恢复原选择。单元测试另验证下一轮切换后请求 ID 正确且保留既有上下文，移除模型提示并回退，列表刷新或失败不清空已选模型，手动添加和搜索正常。 |
-| Mono Light | 白色背景、灰色表面、深灰正文和黑色主按钮；插件固定浅色，正文 14px/1.7，辅助文字最低 12px。原生完成回答、设置与浏览器空态、生成、模型选择等状态均检查。系统字体，无字体下载或新动画框架；未安装参考 skill。 |
-| 阅读能力回归 | 原生读取三页测试 PDF、页码标签、批注，成功跳页、生成并保存笔记；单元测试覆盖六项工具的边界、错误、取消和文献作用范围。 |
-| 发布包 | manifest 与 package 版本为 0.2.0，77 个文件。解包确认含入口、样式、语言包及依赖许可，不含 integration、runtime、preview、测试代码或源码映射。 |
+| Language resolution | Chinese locales, including `zh-TW`, resolve to Simplified Chinese in automatic mode. Other host languages fall back to English. Explicit overrides win; invalid preferences use automatic mode. |
+| Resource coverage | Both catalogs have identical keys and interpolation parameters. English entries are nonempty. Both catalogs are bundled, together with both native Fluent resources. |
+| Independent language setting | Switching without API configuration saves only the language. Unsaved API fields, drafts, selected models, and other open panels are preserved or updated as appropriate. |
+| Streaming selection | Switching language retains the selected answer node and text while more chunks arrive. Clearing selection catches up. The model remains locked, and language preferences are absent from API payloads. |
+| History | Complete titles survive rendering and restoration, markup is escaped, dates follow the selected locale, English singular message counts are correct, and drafts survive restoration. |
+| Regression | Scoped reader tools, cancellation, Markdown safety, copy boundaries, model discovery errors/timeouts, manual models, defaults, legacy migration, request model IDs, retained context, history restoration, and document lifecycle. |
 
-## 验证方式
+## Native Zotero validation
 
-`npm run check`：TypeScript 检查、32 项自动化测试、XPI 构建通过。
+The production sidebar and reader adapter ran in an **isolated profile and fixture library**. This is native Gecko/Zotero validation, not a browser preview. The daily-use profile and personal papers were not modified.
 
-原生集成脚本为 `scripts/runtime-integration.js`，测试在 `.runtime/run-2/` 的独立配置及文献库运行，最终结果 `ok: true`，完整结果保存在 [native-0.2.0.json](validation/native-0.2.0.json)。脚本先验证真实 Zotero 接口，再走生产侧栏和请求代码；测试入口仅加入独立测试 XPI。没有安装到用户的主配置，也没有改动用户文献库。
+Full results: [native-0.3.0.json](validation/native-0.3.0.json).
 
-发布包中的配置新增 `modelIDs`、`defaultModelID`，保留旧 `model` 字段用于兼容；会话和归档新增可选 `modelID`，每条新回答记录实际模型。会话版本保持 1，旧消息和草稿继续可读。
+| Area | Observed result |
+| --- | --- |
+| Root cause of history overlap | Matching rules from `chrome://zotero-platform/content/zotero.css` include a native `height: 28px`. Before the fix, the history button measured about 28.57px while its children extended roughly 59px below it. A separate legacy `max-height: 25px` rule also matches, but computed max-height was already `none`; the fixed height was the active constraint. |
+| Corrected history height | The repaired representative row measured about 95.77px. Title and metadata remain within the button. Height, maximum height, margins, appearance, and shrink behavior are overridden only for Margin history entries. |
+| History stress cases | 12 combinations: Chinese/English × requested sidebar widths 260/320/520px × font preference 13/20. Actual sidebar widths were asserted; row widths were 191/251/451px after navigation and padding. To stress actual text enlargement despite the plugin's fixed base type size, the 20px cases additionally set title and metadata text to 20px in the test DOM. No title/meta, adjacent-row, or outer-scroll overlap was found. |
+| Long and empty history | Chinese, English, long repeated sentences, long unbroken words, two-line title clamping, complete hover titles, a year-boundary timestamp, wrapping metadata, empty history, and native keyboard focus passed. Rows remain native HTML buttons with default activation semantics. |
+| Language in a native reader | Automatic Chinese detection, manual English settings, native navigation tooltip, retained draft/model/answer nodes, and selected text during generation passed. Switching language did not unlock the in-flight model. |
+| Restart persistence | Plugin shutdown/startup retained English. A separate actual Zotero process restart retained the saved `zh-CN` override and loaded Chinese panels; the test `user.js` language reset was removed before that restart. See [restart-0.3.0.json](validation/restart-0.3.0.json). |
+| Sidebar and lifecycle | Width changes, collapse/reopen, navigation restoration, resize to 1100×700, independent transcript scrolling, document switching, close/dispose, unchanged pinning, and plugin shutdown/reload passed. |
+| Native clipboard | DOM ranges in the real Zotero window selected Chinese, English, code, and multiple paragraphs. Copy keyboard events and the selection context menu were checked against the system clipboard, normalizing only CRLF/LF. Streaming selected text remained intact. |
+| Reading and models | Native PDF extraction, printed labels, search, annotations, source navigation, reviewed note persistence, two enabled mock models, locked request model IDs, new-conversation default, and restored model selection passed. |
 
-## 模拟测试与真实服务
+### Visual checks and limits
 
-本次模型为本机模拟服务提供的 `margin-test-model` 与 `margin-test-alternate`，用于验证协议、模型路由、流式响应和工具循环。**没有调用真实 LLM 服务**，因此不以这些测试证明真实模型的阅读质量、特定服务商兼容性或工具调用稳定性。用户配置服务后可通过“测试连接”检查连接及工具调用能力。
+Chinese and English history pages and English settings were captured from the real Zotero window through Gecko's renderer and visually inspected. The history screenshots contain only test fixtures:
 
-## 已知边界
+- [English history](validation/history-en-0.3.0.png)
+- [Chinese history](validation/history-zh-0.3.0.png)
 
-- 面向 Zotero 10.0.x 中有文字层的 PDF；不含 EPUB、扫描件 OCR、图像理解或跨文献检索。
-- 模型服务需要兼容 Chat Completions 及工具调用。`/models` 是可选接口，不支持时手动添加 ID。
-- 阅读器内部接口集中于适配层；升级 Zotero 主版本需要重新验收。
-- 当前采用手动安装、手动更新；公开托管发行前仍需配置真实的更新清单地址。
+The desktop input helper failed to initialize during this run. Physical mouse drag / keyboard copy and physical Enter activation were not repeated for 0.3.0; native DOM, system clipboard, focus, click restoration, and computed-boundary tests ran instead. The earlier physical copy check is documented in the [0.2.0 record](validation/0.2.0.md). Native macOS/Linux checks remain pending.
+
+## Mock models versus real services
+
+The only models used were `margin-test-model` and `margin-test-alternate`, supplied by the local mock API at `127.0.0.1:18765`. These validate request routing, Chat Completions compatibility, SSE handling, and tool sequences. **No real LLM service was called.** These results do not establish reading quality, provider-specific compatibility, or model reliability. Users can test their chosen model from settings.
+
+## Release package
+
+[Package inventory and hash](validation/package-0.3.0.json) confirms version 0.3.0, both Fluent locale directories, and embedded English/Chinese UI catalogs in `plugin.js`. The release archive contains no integration entry point, runtime fixture, preview, session, API credential, environment file, or source map. Test fixtures and keys were also checked against the bundled code.
+
+The checksum is generated after the final build; published asset integrity is checked against this value. There is one universal XPI. No automatic update mechanism was added.
+
+Support remains Zotero 10.0.x with text-layer PDFs. OCR, image understanding, EPUB, snapshots, and cross-document search are outside the current scope.

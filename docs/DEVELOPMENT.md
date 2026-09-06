@@ -1,6 +1,10 @@
-# 开发与验证
+# Development and validation
 
-## 常用命令
+[English](DEVELOPMENT.md) · [简体中文](DEVELOPMENT.zh-CN.md)
+
+## Build and test
+
+Use Node.js 22 or newer (verified with Node.js 24).
 
 ```sh
 npm ci
@@ -9,27 +13,36 @@ npm test
 npm run build
 ```
 
-`npm run check` 依次执行上述检查、测试和构建。版本号来自 `package.json`；发布文件来自 `src/` 与 `addon/`。本地配置、缓存、测试入口和预览代码不进入 XPI。
+`npm run check` runs type checking, all tests, and the build. The version comes from `package.json`; release content comes from `src/` and `addon/`. Local settings, caches, preview code, and integration test entry points are excluded from the XPI.
 
-## 源码结构
+## Source layout
 
-| 文件 | 职责 |
+| File | Responsibility |
 | --- | --- |
-| `src/main.ts` | 插件生命周期、原生侧栏注册、阅读器事件 |
-| `src/ui.ts` | 对话、设置、历史、笔记草稿 |
-| `src/agent.ts` | 六项限定工具、上下文及 Agent 循环 |
-| `src/provider.ts` | Chat Completions、模型列表、SSE、取消及错误处理 |
-| `src/models.ts` | 多模型配置与旧配置迁移 |
-| `src/selection.ts` | 文字选择、复制与流式选区保护 |
-| `src/zotero.ts` | 阅读器适配、凭据和会话存储 |
-| `src/markdown.ts` | Markdown、公式和来源引用 |
-| `addon/` | 清单、入口、样式、图标和语言文件 |
+| `src/main.ts` | Plugin lifecycle, native sidebar registration, reader events |
+| `src/ui.ts` | Chat, settings, conversation history, note review |
+| `src/i18n.ts`, `src/locales/` | Language preference, parameterized Chinese/English messages, live text bindings |
+| `src/agent.ts` | Six scoped tools, context assembly, agent loop |
+| `src/provider.ts` | Chat Completions, model discovery, SSE, cancellation, errors |
+| `src/models.ts` | Multi-model settings and legacy migration |
+| `src/selection.ts` | Text selection, copying, streaming selection protection |
+| `src/zotero.ts` | Reader adapter, credentials, preferences, local sessions |
+| `src/markdown.ts` | Markdown, formulas, source references |
+| `addon/` | Manifest, bootstrap, styles, icons, Fluent resources |
 
-PDF 文本、页码和选区使用 Zotero 阅读器内部接口，集中在适配层。升级 Zotero 主版本时应重新验证，不能仅修改兼容版本号。
+PDF text, page labels, and selections use Zotero reader internals, isolated in the adapter. Revalidate on a new Zotero major version; changing a compatibility number alone is insufficient.
 
-## 浏览器预览
+### Localization
 
-在两个终端中分别运行：
+The preference `extensions.margin.language` is separate from model configuration. `auto` uses Zotero's locale, with Chinese mapped to `zh-CN` and all other languages mapped to `en-US`. Explicit overrides are persisted without changing Zotero's locale.
+
+Chinese message IDs are shared by both catalogs, with named parameters such as `{page}` and `{count}`. The English catalog is typed against the Chinese keys; tests check key and parameter parity. Add new UI messages to both catalogs. Use `t()` for plain text and `L()` for escaped, live-bound text in UI markup. Dynamic status messages are translated only in plugin-owned status containers. Never run translation over document text or model output.
+
+Language listeners refresh interface text without replacing conversation nodes or unsaved settings. Native Fluent labels use the same wording; the navigation tooltip also follows a manual override. Catalogs are bundled into `plugin.js`, and both Fluent locales are included in the universal XPI.
+
+## Browser preview
+
+Run these in separate terminals:
 
 ```sh
 node scripts/mock-provider.mjs
@@ -39,34 +52,35 @@ node scripts/mock-provider.mjs
 npm run preview
 ```
 
-打开 `http://127.0.0.1:18766`。预览使用生产侧栏代码与测试文献；本机模拟服务监听 `127.0.0.1:18765`。模拟模型仅验证协议和工具流程，不能替代原生布局、剪贴板或真实模型能力验收。
+Open `http://127.0.0.1:18766`. The preview uses the production sidebar with a fixture document. The mock API listens on `127.0.0.1:18765` and tests protocol/tool flows, not model intelligence. A browser preview does not replace native layout or clipboard validation.
 
-## 原生集成测试
+## Isolated native tests
 
-先构建 XPI，再准备一个独立测试配置：
+Build the XPI and prepare an independent profile:
 
 ```sh
 npm run build
 node scripts/prepare-runtime.mjs run-1
 ```
 
-脚本在 `.runtime/run-1/` 创建独立配置、文献库、测试 PDF 和测试版 XPI。保持模拟 API 运行，然后用本机 Zotero 启动该配置，例如 PowerShell：
+The script creates `.runtime/run-1/` with a separate profile, library, fixture PDF, and test XPI. Keep the mock API running, then launch your installed Zotero with that profile. For example, in PowerShell:
 
 ```powershell
 & 'C:\Program Files\Zotero\zotero.exe' -no-remote -profile "$PWD\.runtime\run-1\profile" -purgecaches
 ```
 
-按实际安装位置修改可执行文件路径。不要使用日常阅读的 Zotero 配置运行集成脚本。
+Adjust the executable path for your installation. **Never run the integration harness in your everyday Zotero profile.**
 
-结果写入 `.runtime/run-1/result.json`。`scripts/runtime-integration.js` 只被加入测试 XPI，发布包不包含它。仓库中的 `scripts/run-runtime.ps1` 是本地便利脚本，默认 Zotero 路径为 `D:\Zotero\zotero.exe`，使用前需要检查路径。
+Results are written to `.runtime/run-1/result.json`. `scripts/runtime-integration.js` is injected only into the test XPI and is not shipped. The convenience script `scripts/run-runtime.ps1` assumes `D:\Zotero\zotero.exe`; check the path before using it. It restarts only the matching isolated profile.
 
-已归档的 0.2.0 验证范围见 [VALIDATION.md](../VALIDATION.md)。浏览器测试不能替代 Zotero 内的拖选、快捷键复制、侧栏缩放及文献切换检查。
+The native harness exercises production UI in Zotero, measures element bounds, compares selected text with the system clipboard, and captures fixture-only panels through Gecko's renderer. History stress cases cover two locales, multiple widths, long titles, long unbroken words, and enlarged text. See [VALIDATION.md](../VALIDATION.md) for the exact automated and native coverage, including any manual checks not repeated.
 
-## 发布
+## Release
 
-1. 同步 `package.json`、锁文件及 `addon/manifest.json` 的版本，更新变更记录。
-2. 运行 `npm run check`，完成相应的原生验收。
-3. 将生成的 XPI 和 SHA-256 校验文件附到对应的 GitHub Release。
-4. 更新 README 和验收记录中的版本、下载地址及验证范围。
+1. Synchronize versions in `package.json`, the lockfile, and `addon/manifest.json`.
+2. Run `npm run check` and the relevant native acceptance tests.
+3. Inspect XPI entries: include both languages; exclude runtime fixtures, test entry points, credentials, and source maps.
+4. Compute SHA-256 **after the final build**. Attach the XPI and checksum file to the matching GitHub Release.
+5. Update both READMEs, changelog, and validation record with the release version and actual verification scope.
 
-当前采用手动安装、手动更新。清单中的 `update_url` 使用保留的 `.invalid` 域作为占位，不会从第三方获取更新；如需自动更新，应另行配置并验证实际的 HTTPS 更新清单。
+Installation and updates remain manual. The manifest's reserved `.invalid` update URL is a placeholder; it does not retrieve updates from a third party. A working automatic update feed would require a separate implementation and verification.

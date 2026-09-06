@@ -1,107 +1,119 @@
-# Margin · 页伴
+# Margin
 
-**在 Zotero 里，与当前文献对话。**
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-Margin 是一个嵌入 Zotero 右侧窗格的 AI 阅读助手。它可以查阅当前 PDF、解释选中的段落、定位原文出处，并将阅读结果整理成笔记。模型和 API 由你自行选择。
+**Read, ask, and return to the source — inside Zotero.**
 
-[下载安装包](https://github.com/koabula/zotero-margin/releases/latest) · [更新记录](CHANGELOG.md) · [验收记录](VALIDATION.md) · [问题反馈](https://github.com/koabula/zotero-margin/issues)
+Margin is an AI reading companion in Zotero's right sidebar. It reads the current PDF, explains selected passages, finds supporting text, and helps turn your reading into notes. You choose the model and supply your own API connection.
 
-> 当前版本 **0.2.0**，支持 **Zotero 10.0.x** 中具有文字层的 PDF。原生界面已在 Windows / Zotero 10.0.1 验证；其他操作系统尚未完成原生验收。
+[Download](https://github.com/koabula/zotero-margin/releases/latest) · [Changelog](CHANGELOG.md) · [Validation](VALIDATION.md) · [Report an issue](https://github.com/koabula/zotero-margin/issues)
 
-## 能做什么
+> **Version 0.3.0** targets **Zotero 10.0.x** and PDFs with a text layer. Native integration is tested on Windows with Zotero 10.0.1. Native testing on macOS and Linux is still pending.
 
-- **边读边问**：解释选区、梳理概念、总结当前页，支持连续追问。
-- **查阅原文**：按需读取页面、搜索当前文献、查看高亮与批注。
-- **回到出处**：回答附带可点击引用，跳转到对应页面，区分正文页码与 PDF 页序。
-- **整理笔记**：先预览 AI 生成的笔记草稿，再保存到当前文献；也可以保存整条回答。
-- **自由选择模型**：接入兼容 Chat Completions 和工具调用的 API，获取模型列表或手动添加，按对话切换模型。
-- **专注阅读**：全高自适应侧栏，固定 Mono Light 黑白灰配色，对话独立滚动。回答、代码和笔记预览均可选择复制。
+## Features
 
-助手只使用 Zotero 阅读相关工具，没有系统命令执行、任意文件读取或网页浏览能力。
+- **Read together:** explain a selection, clarify concepts, summarize a page, and ask follow-up questions.
+- **Check the paper:** read pages on demand, search the current document, and consult your highlights and annotations.
+- **Follow the evidence:** click source references to navigate to the relevant page. Printed page labels and PDF page numbers remain distinct.
+- **Save reading notes:** review a proposed note before saving it under the current item, or save a complete answer.
+- **Choose your models:** connect a Chat Completions API with tool calling, discover or manually add models, and switch models per conversation.
+- **Stay focused:** a full-height Mono Light sidebar, independently scrolling conversations, and selectable text in answers, code, and note previews.
+- **Use English or Chinese:** one XPI includes both languages, with automatic detection and an in-plugin language selector.
 
-## 安装
+The assistant's tools are limited to reading-related actions in Zotero. It has no shell, arbitrary file access, or web browsing tool.
 
-1. 前往 [Releases](https://github.com/koabula/zotero-margin/releases/latest)，下载 `margin-0.2.0.xpi`。请下载 XPI 安装包，而不是 GitHub 自动生成的源码压缩包。
-2. 在 Zotero 中打开 **工具 → 插件**。
-3. 点击齿轮菜单，选择 **从文件安装插件 / Install Add-on From File**，选中下载的 XPI。
-4. 打开一份 PDF，点击右侧导航栏中的 **Margin** 图标。
+## Install
 
-已有版本可以直接安装新版 XPI。升级保留原有设置、API Key、输入草稿和对话历史；旧单模型配置会自动转换为一个已启用模型和默认模型。
+1. Download **`margin-0.3.0.xpi`** from [Releases](https://github.com/koabula/zotero-margin/releases/latest). Choose the XPI, not GitHub's generated source archive.
+2. In Zotero, open **Tools → Plugins**.
+3. Open the gear menu, choose **Install Add-on From File**, and select the XPI.
+4. Open a PDF and click the **Margin** icon in the right navigation rail.
 
-当前使用**手动更新**，下载新版 XPI 后按相同步骤安装。
+Install a newer XPI the same way to upgrade. Existing API settings, credentials, drafts, and conversation history are preserved. Legacy single-model settings migrate to one enabled model and a default model.
 
-## 配置模型
+Updates are **manual**. There is no automatic update service.
 
-点击助手右上角的设置图标，填写以下内容：
+## Language
 
-| 设置 | 说明 |
+Open settings and use **Language / 语言** at the top:
+
+- **Follow Zotero:** Simplified Chinese for Chinese Zotero locales; English for all other locales.
+- **简体中文** or **English:** override the language for Margin only.
+
+The choice is saved immediately, even without API settings, and applies to open Margin panels. It does not change Zotero's language. Drafts, selected models, history, and ongoing generation are preserved; existing answers and notes are not translated. Quick prompts follow the interface language. The model is instructed to answer in the language of your question, unless you explicitly request another language.
+
+## Connect a model
+
+Open settings using the icon at the top right.
+
+| Setting | What to enter |
 | --- | --- |
-| Base URL | 服务商提供的兼容 API 地址，例如 `https://api.example.com/v1`；也接受完整的 `/chat/completions` 地址。 |
-| API Key | 该服务的访问密钥。不需要认证的本机服务可以留空。 |
-| 已启用模型 | 点击“获取模型”后勾选，或手动添加模型 ID；可同时启用多个。 |
-| 默认模型 | 从已启用模型中选择，新对话使用此模型。 |
+| Base URL | Your provider's compatible API address, such as `https://api.example.com/v1`. A full `/chat/completions` URL is also accepted. |
+| API Key | The service's access key. Leave it empty for a local service that does not require authentication. |
+| Enabled models | Use **Fetch models** and select the models you want, or add model IDs manually. |
+| Default model | An enabled model to use for new conversations. |
 
-点击 **测试连接**，检查默认模型的连接和工具调用能力，然后 **保存配置**。
+Use **Test connection** to check the default model's connection and tool calling, then **Save settings**.
 
-远程 API 需要 HTTPS。本机服务可以使用 `http://localhost:端口/v1` 或 `http://127.0.0.1:端口/v1`。
+Remote APIs require HTTPS. Local services can use `http://localhost:PORT/v1` or `http://127.0.0.1:PORT/v1`.
 
-### 获取模型失败怎么办？
+### If model discovery fails
 
-“获取模型”请求同级 `GET /models`，保留你填写的路径前缀。例如：
+**Fetch models** requests the sibling `GET /models` endpoint, preserving your configured path prefix:
 
 ```text
 https://api.example.com/custom/v1/chat/completions
 → https://api.example.com/custom/v1/models
 ```
 
-插件不会猜测或补充额外路径。部分服务不提供此接口，可直接手动添加模型 ID。请求支持取消，15 秒超时；失败或刷新不会清空已选模型。
+Margin does not guess extra path segments. Some services do not expose this endpoint; enter their model IDs manually instead. Discovery can be cancelled and times out after 15 seconds. A failed request or refreshed list does not clear enabled models.
 
-获取列表使用当前填写的地址和密钥，不发送文献、不自动保存设置。服务返回的模型不一定支持工具调用，需要通过“测试连接”检查。
+Discovery uses the URL and key currently entered in the form. It sends no document content and does not save the form. A returned model ID does not guarantee tool-calling support; use **Test connection** to check it.
 
-## 开始阅读
+## Read with Margin
 
-选中 PDF 中的一段文字，点击 **问问 Margin**；也可以直接在侧栏输入问题，例如：
+Select a passage in the PDF and choose **Ask Margin**, or enter a question in the sidebar:
 
-- “解释这段话中的关键概念，并举一个简单例子。”
-- “总结当前页，区分作者的结论和论证过程。”
-- “在这篇文献中查找 simulator 的定义，并带我跳转过去。”
-- “结合我的批注，整理一份阅读笔记。”
+- “Explain the key concepts in this passage and give a simple example.”
+- “Summarize this page, separating the author's conclusions from their reasoning.”
+- “Find the definition of a simulator in this paper and take me to it.”
+- “Use my annotations to draft a reading note.”
 
-`Enter` 发送，`Shift + Enter` 换行。生成期间可随时点击停止。点击其他 Zotero 导航图标即可恢复原生面板，Margin 不改变面板排序和固定设置。
+Press `Enter` to send and `Shift + Enter` for a new line. Stop generation at any time. Clicking another Zotero navigation icon restores its native panel without changing panel order or pinning.
 
-### 模型与对话
+### Models and conversations
 
-输入框底部的下拉菜单用于切换已启用模型。每段对话记住自己的选择，切换保留上下文，只影响下一次请求；生成期间禁止切换，一轮工具调用始终使用发送时确定的模型。每条新回答标注实际使用的模型。
+The selector below the input switches between enabled models. Each conversation remembers its model. Switching preserves context and affects the next request; switching is disabled during generation, and every tool cycle in a turn uses the model selected when you sent the question. New answers show the model actually used.
 
-每份附件独立保存对话和输入草稿。点击“新对话”会归档当前对话，之后可以从“历史对话”恢复。若原来的模型已被移除，会回退到默认模型并显示提示。
+Each attachment has its own conversation and draft. **New conversation** archives the current conversation; restore it from **Conversation history**. If its model was removed, Margin falls back to the default model and shows a notice. History titles display up to two lines; hover to read the full title.
 
-### 复制与笔记
+### Copy and save notes
 
-可以拖选中文、英文、多段回答和代码，使用 `Ctrl+C`（macOS 为 `Cmd+C`）或右键 **复制所选文字**；回答下方也提供整条复制按钮。
+Select text across paragraphs or code, then use `Ctrl+C` (`Cmd+C` on macOS) or right-click **Copy selected text**. Each answer also has a copy button.
 
-选中生成中的文字时，插件会暂缓该回答的显示更新，继续接收内容；清除选区后补齐显示，避免选区被流式更新打断。
+While you select text in a streaming answer, its display updates pause while content continues arriving. Clear the selection to catch up without losing your place during copying.
 
-AI 提交的笔记草稿需要点击 **保存到文献** 才会写入。只读文献库不支持保存笔记。
+A proposed note is only written after you choose **Save to item**. Read-only libraries cannot accept new notes.
 
-## 数据与隐私
+## Data handling
 
-- **直接连接你的 API**：没有 Margin 自建后端或遥测。提问时，相关原文、选区、对话和工具结果会发送给你配置的服务；服务端的数据处理取决于该服务商。
-- **密钥存入凭据库**：API Key 保存在 Zotero / Gecko 登录凭据库，不写入普通偏好、对话或日志。
-- **对话保存在本机**：位于 Zotero 配置目录的 `margin/sessions/`；提取的 PDF 文本只在内存中缓存。
-- **工具限定于当前文献**：切换或关闭文献会停止当前生成。后台查阅不会改变阅读位置，明确的定位操作才会跳页。
-- **笔记遵循 Zotero 设置**：保存到文献的笔记会按 Zotero 自身的同步设置处理。
+- **Your API, directly:** no Margin backend or telemetry. Relevant document text, selections, conversation context, and tool results are sent to your configured service when you ask a question. That provider controls its server-side data handling.
+- **Credentials:** API keys are stored in the Zotero / Gecko credential store, not ordinary preferences, conversations, or logs.
+- **Local conversations:** sessions live in `margin/sessions/` under the Zotero profile directory. Extracted PDF text is cached in memory only.
+- **Current document scope:** switching or closing a document stops generation. Background reading does not change the visible page; explicit navigation does.
+- **Zotero notes:** saved notes follow Zotero's own synchronization settings.
 
-回答使用禁用原始 HTML 的 Markdown 渲染，不加载模型生成的远程图片。仍建议结合原文核对 AI 的解释和笔记。
+Answers use Markdown with raw HTML disabled. Model-generated remote images are not loaded. Check explanations and notes against the paper.
 
-## 支持范围与验证
+## Support and validation
 
-目前不支持 EPUB、网页快照、扫描件 OCR、图像理解或跨文献检索。复杂公式和版式的文本提取可能不完整。
+EPUB, web snapshots, OCR for scanned PDFs, image understanding, and cross-document search are not supported. Complex formulas and layouts may not extract cleanly.
 
-0.2.0 已通过 **32 项自动化测试**，并在独立的 Zotero 10.0.1 配置中验证侧栏布局、原生复制、文献切换、模型请求、历史恢复和插件清理。模型协议测试使用**本机模拟服务**，不代表真实 LLM 的阅读质量，也不表示已验证所有服务商。详见 [验收记录](VALIDATION.md)。
+Version 0.3.0 passes **37 automated tests** and native integration checks for language changes, history layout, sidebar behavior, clipboard copying, reader lifecycle, model routing, and tool flows. Model tests use a **local mock service**; they do not establish real LLM reading quality or compatibility with every provider. See the [validation record](VALIDATION.md) for methods and limits.
 
-## 开发
+## Development
 
-需要 Node.js 22 或更高版本；项目在 Node.js 24 下构建验证。
+Use Node.js 22 or later; builds were verified with Node.js 24.
 
 ```sh
 git clone https://github.com/koabula/zotero-margin.git
@@ -110,8 +122,8 @@ npm ci
 npm run check
 ```
 
-`npm run check` 运行类型检查、测试和构建，生成 `dist/margin-0.2.0.xpi`。更多源码结构、浏览器预览与原生集成测试说明见 [开发文档](docs/DEVELOPMENT.md)。
+This runs type checking, tests, and a build, producing `dist/margin-0.3.0.xpi`. See the [development guide](docs/DEVELOPMENT.md) for the source layout, preview, isolated native tests, and release steps.
 
-反馈问题时，请附 Zotero 版本、操作系统、复现步骤和经过脱敏的错误信息。不要提交 API Key、个人文献或完整对话记录。
+When reporting issues, include your Zotero version, operating system, reproduction steps, and redacted error details. Do not submit API keys, personal papers, or complete private conversations.
 
-依赖及其许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
+Dependency licenses are listed in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
