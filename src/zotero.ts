@@ -1,3 +1,4 @@
+import { t, languagePreference, type LanguagePreference } from "./i18n";
 import { checkAbort, emptySession, type AnnotationText, type Config, type PageText, type ReaderBridge, type ReaderContext, type Session, type Source, type Store } from "./types";
 import { escapeHTML } from "./markdown";
 import { normalizeConfig } from './models';
@@ -14,23 +15,23 @@ export class ZoteroReaderBridge implements ReaderBridge {
   private pdf: any;
   constructor(readonly reader: any, private active: () => boolean) {}
   assertActive(): void {
-    if (!this.active() || this.reader._isUninitialized) throw new Error("当前文献已切换或关闭，请返回原文献后操作。");
+    if (!this.active() || this.reader._isUninitialized) throw new Error(t("当前文献已切换或关闭，请返回原文献后操作。"));
   }
   private async application(): Promise<any> {
-    if (this.reader._isUninitialized) throw new Error("文献已关闭，请重新打开。");
+    if (this.reader._isUninitialized) throw new Error(t("文献已关闭，请重新打开。"));
     await this.reader._initPromise;
     const view = this.reader._internalReader?._primaryView;
     await view?.initializedPromise;
     await view?._pageLabelsPromise;
     const app = view?._iframeWindow?.PDFViewerApplication;
-    if (!app?.pdfDocument) throw new Error("请在 Zotero 内打开一份 PDF。当前版本支持具有文字层的 PDF。");
+    if (!app?.pdfDocument) throw new Error(t("请在 Zotero 内打开一份 PDF。当前版本支持具有文字层的 PDF。"));
     if (this.pdf !== app.pdfDocument) { this.pdf = app.pdfDocument; this.cache.clear(); }
     return app;
   }
   async context(): Promise<ReaderContext> {
     const app = await this.application();
     const item = Zotero.Items.get(this.reader.itemID);
-    if (!item || !item.isPDFAttachment()) throw new Error("当前附件不是 PDF。");
+    if (!item || !item.isPDFAttachment()) throw new Error(t("当前附件不是 PDF。"));
     const parent = item.parentID ? Zotero.Items.get(item.parentID) : item;
     const internal = this.reader._internalReader;
     const primary = internal._lastViewPrimary !== false;
@@ -52,8 +53,8 @@ export class ZoteroReaderBridge implements ReaderBridge {
     return {
       attachmentID: item.id, libraryID: item.libraryID, attachmentKey: item.key,
       ...(library.libraryType === "group" ? { groupID: Zotero.Groups.getGroupIDFromLibraryID(item.libraryID) } : {}),
-      title: parent.getField("title") || item.getField("title") || "未命名文献",
-      authors: creators.slice(0, 3).map((c: any) => c.lastName || c.name || "").join("、") + (creators.length > 3 ? " 等" : ""),
+      title: parent.getField("title") || item.getField("title") || t("未命名文献"),
+      authors: creators.slice(0, 3).map((c: any) => c.lastName || c.name || "").join("、") + (creators.length > 3 ? t(" 等") : ""),
       pageIndex, pageLabel: internal._state.pageLabels?.[pageIndex] || String(pageIndex + 1),
       pageCount: app.pdfDocument.numPages, selection: selection.slice(0, 10000), selectionPageIndex,
     };
@@ -61,7 +62,7 @@ export class ZoteroReaderBridge implements ReaderBridge {
   async readPage(pageIndex: number, signal?: AbortSignal): Promise<PageText> {
     checkAbort(signal);
     const app = await this.application();
-    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= app.pdfDocument.numPages) throw new Error("页面超出文献范围。");
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= app.pdfDocument.numPages) throw new Error(t("页面超出文献范围。"));
     const cached = this.cache.get(pageIndex);
     if (cached) return cached;
     let text: string;
@@ -82,7 +83,7 @@ export class ZoteroReaderBridge implements ReaderBridge {
   }
   async annotations(): Promise<AnnotationText[]> {
     const item = Zotero.Items.get(this.reader.itemID);
-    if (!item) throw new Error("文献已不存在。");
+    if (!item) throw new Error(t("文献已不存在。"));
     return item.getAnnotations().filter((a: any) => !a.deleted).map((a: any) => {
       let position: any = {};
       try { position = JSON.parse(a.annotationPosition || "{}"); } catch { /* Older malformed annotations have no usable position. */ }
@@ -92,7 +93,7 @@ export class ZoteroReaderBridge implements ReaderBridge {
   async navigate(source: Source): Promise<void> {
     this.assertActive();
     const app = await this.application();
-    if (source.pageIndex < 0 || source.pageIndex >= app.pdfDocument.numPages) throw new Error("引用页码已失效。");
+    if (source.pageIndex < 0 || source.pageIndex >= app.pdfDocument.numPages) throw new Error(t("引用页码已失效。"));
     this.assertActive();
     await this.reader.navigate({ pageIndex: source.pageIndex, ...(source.annotationID ? { annotationID: source.annotationID } : {}) });
   }
@@ -100,11 +101,11 @@ export class ZoteroReaderBridge implements ReaderBridge {
     this.assertActive();
     const attachment = Zotero.Items.get(this.reader.itemID);
     const library = Zotero.Libraries.get(attachment.libraryID);
-    if (!library.editable) throw new Error("此文献库为只读，无法保存笔记。");
+    if (!library.editable) throw new Error(t("此文献库为只读，无法保存笔记。"));
     const note = new Zotero.Item("note");
     note.libraryID = attachment.libraryID;
     if (attachment.parentID) note.parentID = attachment.parentID;
-    note.setNote(`<div data-schema-version="9"><h1>${escapeHTML(title)}</h1>${html}<p><em>由 Margin 辅助整理 · 请结合原文核对</em></p></div>`);
+    note.setNote(`<div data-schema-version="9"><h1>${escapeHTML(title)}</h1>${html}<p><em>${t('由 Margin 辅助整理 · 请结合原文核对')}</em></p></div>`);
     const id = await note.saveTx();
     return { id };
   }
@@ -113,6 +114,8 @@ export class ZoteroReaderBridge implements ReaderBridge {
 const pref = "extensions.margin.";
 const credentialOrigin = "chrome://margin";
 export class ZoteroStore implements Store {
+  async getLanguage(): Promise<LanguagePreference> { return languagePreference(Zotero.Prefs.get(pref + 'language', true)); }
+  async saveLanguage(language: LanguagePreference): Promise<void> { Zotero.Prefs.set(pref + 'language', languagePreference(language), true); }
   private writes = new Map<string, Promise<void>>();
   private root = PathUtils.join(Services.dirsvc.get("ProfD", Components.interfaces.nsIFile).path, "margin", "sessions");
   async getConfig(): Promise<Config> {
@@ -143,7 +146,7 @@ export class ZoteroStore implements Store {
     Zotero.Prefs.set(pref + 'defaultModelID', config.defaultModelID, true);
   }
   private path(key: string): string {
-    if (!/^\d+-[A-Z0-9]+$/.test(key)) throw new Error("会话标识无效。");
+    if (!/^\d+-[A-Z0-9]+$/.test(key)) throw new Error(t("会话标识无效。"));
     return PathUtils.join(this.root, key + ".json");
   }
   async loadSession(key: string): Promise<Session> {
@@ -151,8 +154,8 @@ export class ZoteroStore implements Store {
     const path = this.path(key);
     if (!(await IOUtils.exists(path))) return emptySession();
     let data: any;
-    try { data = await IOUtils.readJSON(path); } catch { throw new Error("本地会话暂时无法读取，原文件已保留。请重试。"); }
-    if (data.version !== 1 || !Array.isArray(data.messages) || typeof data.draft !== "string" || data.messages.some((m: any) => !["user", "assistant"].includes(m.role) || typeof m.content !== "string" || !Array.isArray(m.sources))) throw new Error("会话文件格式不正确，原文件已保留。");
+    try { data = await IOUtils.readJSON(path); } catch { throw new Error(t("本地会话暂时无法读取，原文件已保留。请重试。")); }
+    if (data.version !== 1 || !Array.isArray(data.messages) || typeof data.draft !== "string" || data.messages.some((m: any) => !["user", "assistant"].includes(m.role) || typeof m.content !== "string" || !Array.isArray(m.sources))) throw new Error(t("会话文件格式不正确，原文件已保留。"));
     return data;
   }
   saveSession(key: string, session: Session): Promise<void> {

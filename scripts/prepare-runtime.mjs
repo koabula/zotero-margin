@@ -15,7 +15,7 @@ const prefs = {
   'extensions.zoteroWinWordIntegration.skipInstallation': true,
   'extensions.zoteroOpenOfficeIntegration.skipInstallation': true,
   'browser.shell.checkDefaultBrowser': false, 'toolkit.telemetry.enabled': false,
-  'intl.locale.requested': 'zh-CN', 'extensions.zotero.fontSize': 13,
+  'extensions.margin.language': 'auto', 'intl.locale.requested': 'zh-CN', 'extensions.zotero.fontSize': 13,
 };
 await writeFile(path.join(run, 'profile/user.js'), Object.entries(prefs).map(([k, v]) => `user_pref(${JSON.stringify(k)}, ${JSON.stringify(v)});`).join('\n'));
 const version = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;

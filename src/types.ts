@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 export interface Config {
   baseURL: string;
   model: string;
@@ -53,6 +54,8 @@ export interface DisplayMessage {
 }
 export interface Session { version: 1; messages: DisplayMessage[]; draft: string; modelID?: string; archives?: { createdAt: string; messages: DisplayMessage[]; modelID?: string }[] }
 export interface Store {
+  getLanguage?(): Promise<import('./i18n').LanguagePreference>;
+  saveLanguage?(language: import('./i18n').LanguagePreference): Promise<void>;
   getConfig(): Promise<Config>;
   saveConfig(config: Config): Promise<void>;
   loadSession(key: string): Promise<Session>;
@@ -61,5 +64,5 @@ export interface Store {
 export type ToolSchema = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
 export interface Completion { content: string; toolCalls: ToolCall[] }
 export type Complete = (messages: ChatMessage[], tools: ToolSchema[], onText: (text: string) => void, signal: AbortSignal) => Promise<Completion>;
-export function checkAbort(signal?: AbortSignal): void { if (signal?.aborted) throw new Error("已停止生成"); }
+export function checkAbort(signal?: AbortSignal): void { if (signal?.aborted) throw new Error(t("已停止生成")); }
 export const emptySession = (): Session => ({ version: 1, messages: [], draft: "" });

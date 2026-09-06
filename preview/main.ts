@@ -1,9 +1,11 @@
+import { setLanguage, languagePreference } from '../src/i18n';
+setLanguage(languagePreference(localStorage.getItem('margin.language')),navigator.language);
 import { Sidebar } from '../src/ui';
 import { emptySession, type Config, type Session, type Store } from '../src/types';
 let config: Config = { baseURL: location.origin + '/v1', model: 'margin-test-model', modelIDs:['margin-test-model','margin-test-alternate'], defaultModelID:'margin-test-model', apiKey: '' };
 const sessions = new Map<string, Session>();
 let pageIndex = 1;
-const store: Store = { getConfig: async () => config, saveConfig: async c => { config = c; }, loadSession: async k => sessions.get(k) || emptySession(), saveSession: async (k,s) => { sessions.set(k, structuredClone(s)); } };
+const store: Store = { getLanguage:async()=>languagePreference(localStorage.getItem("margin.language")), saveLanguage:async value=>{localStorage.setItem("margin.language",value);}, getConfig: async () => config, saveConfig: async c => { config = c; }, loadSession: async k => sessions.get(k) || emptySession(), saveSession: async (k,s) => { sessions.set(k, structuredClone(s)); } };
 const sidebar = new Sidebar(document.getElementById('app')!, { store, copy: text => { void navigator.clipboard.writeText(text); }, openURL: url => window.open(url, '_blank', 'noopener,noreferrer') });
 void sidebar.attach({
   context: async () => ({ attachmentID: 1, libraryID: 1, attachmentKey: 'TEST1234', title: 'A Pragmatic Introduction to Secure Multi-Party Computation', authors: 'Evans 等', pageIndex, pageLabel: String(pageIndex + 20), pageCount: 3, selection: '' }),

@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 /** Keep copy shortcuts inside the assistant; never capture PDF or input selections. */
 export class TextSelection {
   private dragging = false;
@@ -7,7 +8,7 @@ export class TextSelection {
     this.doc = root.ownerDocument;
     this.menu = this.doc.createElementNS('http://www.w3.org/1999/xhtml', 'button') as HTMLButtonElement;
     this.menu.type = 'button'; this.menu.className = 'margin-copy-menu'; this.menu.hidden = true;
-    this.menu.textContent = '复制所选文字';
+    this.menu.textContent = t("复制所选文字");
     this.menu.addEventListener('mousedown', e => e.preventDefault());
     this.menu.addEventListener('click', () => { const text = this.text(); if (text) this.copy(text); this.menu.hidden = true; });
     root.append(this.menu);
@@ -18,6 +19,7 @@ export class TextSelection {
     this.doc.addEventListener('pointerup', this.up, true);
     root.addEventListener('contextmenu', this.contextMenu);
   }
+  refreshLanguage(): void { this.menu.textContent = t('复制所选文字'); }
   text(): string {
     if (this.doc.activeElement?.matches('input,textarea')) return '';
     const selection = this.doc.getSelection();

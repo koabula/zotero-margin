@@ -1,4 +1,6 @@
+import { setLanguage } from "../src/i18n";
 import test from "node:test";
+test.beforeEach(() => setLanguage("zh-CN"));
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { Sidebar } from "../src/ui";
@@ -189,4 +191,41 @@ test('saving settings keeps the removed-model fallback visible', async () => {
   sidebar.root.querySelector<HTMLInputElement>('[data-model-id="b"]')!.click();
   sidebar.root.querySelector<HTMLButtonElement>('[data-action="save-settings"]')!.click();await tick();
   assert.equal(select.value,'a');assert.match(sidebar.root.querySelector('.margin-status')!.textContent!,/原模型已移除/);sidebar.dispose();
+});
+
+test('language saves independently of API settings and synchronizes panels without losing form edits', async()=>{
+  const first=setup(),second=setup();await first.sidebar.attach(first.bridge);await second.sidebar.attach(second.bridge);
+  let language='auto',modelSaves=0;
+  first.store.saveLanguage=async value=>{language=value;};first.store.saveConfig=async()=>{modelSaves++;};
+  const input=first.sidebar.root.querySelector('textarea')!;input.value='unsent draft';input.dispatchEvent(new first.dom.window.Event('input',{bubbles:true}));
+  first.sidebar.root.querySelector<HTMLButtonElement>('[data-action="settings"]')!.click();
+  const base=first.sidebar.root.querySelector<HTMLInputElement>('[name="baseURL"]')!;base.value='https://unsaved.example/v1';
+  const select=first.sidebar.root.querySelector<HTMLSelectElement>('[name="language"]')!;select.value='en-US';select.dispatchEvent(new first.dom.window.Event('change',{bubbles:true}));await tick();
+  assert.equal(language,'en-US');assert.equal(modelSaves,0);assert.equal(base.value,'https://unsaved.example/v1');assert.equal(input.value,'unsent draft');
+  assert.equal(first.sidebar.root.lang,'en-US');assert.equal(second.sidebar.root.lang,'en-US');
+  assert.ok(first.sidebar.root.textContent?.includes('Model settings'));assert.equal(second.sidebar.root.querySelector('textarea')!.placeholder,'Ask about this document…');
+  first.sidebar.root.querySelector<HTMLButtonElement>('[data-action="back"]')!.click();
+  assert.ok(first.sidebar.root.querySelector<HTMLButtonElement>('[data-prompt]')!.dataset.prompt!.startsWith('Explain'));
+  first.sidebar.dispose();second.sidebar.dispose();
+});
+
+test('switching language during streaming preserves selected answer DOM, draft, model and request', async()=>{
+  const {sidebar,bridge,store,dom}=setup();store.getConfig=async()=>({baseURL:'http://localhost/v1',apiKey:'',model:'a'});
+  await sidebar.attach(bridge);await sidebar.refreshConfig();
+  const originalFetch=globalThis.fetch;let stream!:ReadableStreamDefaultController<Uint8Array>;let request:any;
+  globalThis.fetch=async(_url,init)=>{request=JSON.parse(init!.body as string);return new Response(new ReadableStream({start(c){stream=c;}}),{headers:{'content-type':'text/event-stream'}});};
+  const chunk=(content:string)=>stream.enqueue(new TextEncoder().encode('data: '+JSON.stringify({choices:[{delta:{content}}]})+'\n\n'));
+  try {
+    const pending=sidebar.send('Explain this page in English');await tick();chunk('Selected answer.');await new Promise(r=>setTimeout(r,100));
+    const answer=sidebar.root.querySelector('.margin-prose')!, text=answer.querySelector('p')!;
+    const range=dom.window.document.createRange();range.selectNodeContents(text);const selection=dom.window.getSelection()!;selection.addRange(range);
+    const input=sidebar.root.querySelector('textarea')!;input.value='next draft';input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+    setLanguage('en-US');chunk(' More content.');await new Promise(r=>setTimeout(r,100));
+    assert.equal(sidebar.root.querySelector('.margin-prose'),answer);assert.equal(selection.toString(),'Selected answer.');assert.equal(input.value,'next draft');
+    assert.equal(sidebar.root.querySelector<HTMLSelectElement>('.margin-model')!.disabled,true);assert.equal(request.model,'a');assert.equal('language' in request,false);
+    selection.removeAllRanges();dom.window.document.dispatchEvent(new dom.window.Event('selectionchange'));
+    stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));stream.close();await pending;
+    assert.equal(sidebar.root.querySelector('.margin-prose p')!.textContent,'Selected answer. More content.');
+    assert.ok(sidebar.root.querySelector('.margin-status')!.textContent?.includes('Response complete'));
+  } finally {globalThis.fetch=originalFetch;sidebar.dispose();}
 });

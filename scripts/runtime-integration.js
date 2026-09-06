@@ -161,6 +161,29 @@
     win.Zotero_Tabs.close(secondReader.tabID);await until(()=>!secondPanel.isConnected,'closed reader panel disposed');
     assert(details.pinnedPane===pinnedBefore,'pin preference still unchanged');
     await record('native-document-lifecycle',{switchClearsLayout:true,isolatedConversations:true,restored:true,closeDisposed:true});
+    // Language is saved independently, and a refresh must leave conversation nodes intact.
+    const originalAnswer=panel.querySelector('.margin-assistant');
+    const originalText=originalAnswer.querySelector('.margin-prose').textContent;
+    input.value='Unsent draft / 未发送草稿';input.dispatchEvent(new win.Event('input',{bubbles:true}));
+    panel.querySelector('[data-action="settings"]').click();
+    const language=panel.querySelector('[name="language"]');
+    assert(language.value==='auto' && panel.lang==='zh-CN','auto follows Chinese Zotero');
+    language.value='en-US';language.dispatchEvent(new win.Event('change',{bubbles:true}));
+    await until(()=>panel.lang==='en-US','English UI');
+    assert((await store.getLanguage())==='en-US','language preference saved');
+    assert(panel.querySelector('[data-action="save-settings"]').textContent==='Save settings','English settings');
+    panel.querySelector('.margin-settings [data-action="back"]').click();
+    assert(input.value==='Unsent draft / 未发送草稿','language keeps draft');
+    assert(originalAnswer===panel.querySelector('.margin-assistant') && originalText===originalAnswer.querySelector('.margin-prose').textContent,'language keeps answer DOM and content');
+    assert(modelSelect.value==='margin-test-alternate','language keeps model');
+    await record('native-language-switch',{host:Zotero.locale,auto:'zh-CN',override:panel.lang,draftPreserved:true,messageNodePreserved:true,modelPreserved:true});
+    panel.querySelector('[data-action="new"]').click();await until(()=>panel.querySelector('.margin-welcome'),'archive for history inspection');
+    panel.querySelector('[data-action="history"]').click();
+    const historyItem=panel.querySelector('.margin-history-item');
+    const hs=win.getComputedStyle(historyItem),hr=historyItem.getBoundingClientRect();
+    const matchedRules=[];function inspectRules(rules,href){for(const rule of rules){try{if(rule.selectorText && historyItem.matches(rule.selectorText) && /height/.test(rule.style.cssText))matchedRules.push({href,selector:rule.selectorText,css:rule.style.cssText});else if(rule.cssRules)inspectRules(rule.cssRules,href);}catch{}}}for(const sheet of win.document.styleSheets){try{inspectRules(sheet.cssRules,sheet.href);}catch{}}
+    await record('native-history-rules',matchedRules);
+    await record('native-history-style',{height:hs.height,maxHeight:hs.maxHeight,minHeight:hs.minHeight,appearance:hs.appearance,margin:hs.margin,buttonHeight:hr.height,children:[...historyItem.children].map(n=>({tag:n.localName,top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom})),buttonBottom:hr.bottom});
     const rootURI=win.document.querySelector('link[data-margin-style]').href.replace(/styles\.css$/,'');
     Margin.shutdown();
     assert(!win.document.querySelector('.margin-app,[data-margin-active],link[data-margin-style]'),'shutdown removes UI and styles');
@@ -169,6 +192,10 @@
     await Margin.startup({id:'margin@zotero.local',rootURI});
     await until(()=>[...win.document.querySelectorAll('.margin-app')].find(p=>p.closest('item-details')?.tabID===reader.tabID),'plugin reload');
     [...nav.querySelectorAll('[data-pane]')].find(n=>n.dataset.pane===section.paneID).click();
+    const reloadedPanel=[...win.document.querySelectorAll('.margin-app')].find(p=>p.closest('item-details')?.tabID===reader.tabID);
+    assert(reloadedPanel.lang==='en-US','language persists across plugin restart');
+    await until(()=>[...nav.querySelectorAll('[data-pane]')].find(n=>n.dataset.pane===section.paneID)?.getAttribute('title')==='AI reading companion','native navigation localized');
+    await record('native-language-restart',{locale:reloadedPanel.lang,preference:await store.getLanguage()});
     await record('native-plugin-cleanup',{shutdownRemovedUI:true,stylesRemoved:true,pinnedUnchanged:true,reloaded:true});
     await IOUtils.writeJSON(file, { ok: true, results, finishedAt: new Date().toISOString() });
     win.document.title = 'Margin — Integration verified';

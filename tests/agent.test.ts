@@ -1,4 +1,6 @@
+import { setLanguage } from "../src/i18n";
 import test from "node:test";
+test.beforeEach(() => setLanguage("zh-CN"));
 import assert from "node:assert/strict";
 import { ReadingAgent, tools } from "../src/agent";
 import type { Complete, ReaderBridge, ReaderContext, Source } from "../src/types";

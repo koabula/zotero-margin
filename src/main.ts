@@ -1,3 +1,4 @@
+import { t, setLanguage, onLanguageChange } from "./i18n";
 import { Sidebar } from "./ui";
 import { ZoteroReaderBridge, ZoteroStore, rememberSelection } from "./zotero";
 declare const Zotero: any;
@@ -7,9 +8,12 @@ const bridges = new WeakMap<object, ZoteroReaderBridge>();
 const windows = new Set<any>();
 const navigationListeners = new Map<any, (event: MouseEvent) => void>();
 let store: ZoteroStore;
+let unsubscribeLanguage: (() => void) | undefined;
 
 export async function startup(options: { id: string; rootURI: string }): Promise<void> {
   pluginID = options.id; rootURI = options.rootURI; store = new ZoteroStore();
+  setLanguage(await store.getLanguage(), Zotero.locale || 'en-US');
+  unsubscribeLanguage = onLanguageChange(updateNativeLanguage);
   for (const win of Zotero.getMainWindows()) windowLoad(win);
   paneID = Zotero.ItemPaneManager.registerSection({
     paneID: "margin", pluginID,
@@ -48,6 +52,14 @@ function setup(body: HTMLElement, doc: Document): void {
     focusPane: () => activate(body),
   });
   panels.set(body, panel);
+  setTimeout(updateNativeLanguage, 0);
+}
+function updateNativeLanguage(): void {
+  for (const win of windows) for (const node of win.document.querySelectorAll('item-pane-sidenav [data-pane]')) {
+    if (node.dataset.pane !== paneID) continue;
+    node.removeAttribute('data-l10n-id'); node.setAttribute('title',t('AI 阅读助手')); node.setAttribute('tooltiptext',t('AI 阅读助手')); node.setAttribute('aria-label',t('AI 阅读助手'));
+    for (const label of node.querySelectorAll('[data-l10n-id]')) { label.removeAttribute('data-l10n-id'); label.setAttribute('title',t('AI 阅读助手')); label.setAttribute('aria-label',t('AI 阅读助手')); }
+  }
 }
 function activate(body: HTMLElement): void {
   const details = body.closest('item-details') as any;
@@ -73,7 +85,7 @@ function onSelection(event: any): void {
   const { reader, doc, params, append } = event;
   rememberSelection(reader, params.annotation);
   const button = doc.createElement("button");
-  button.textContent = "问问 Margin";
+  button.textContent = t("问问 Margin");
   button.style.cssText = "color:var(--fill-primary,#262626);padding:5px 9px;border:0;border-radius:5px;background:var(--material-button,transparent);cursor:pointer;font-size:12px;";
   button.addEventListener("click", async () => {
     await reader.setContextPaneOpen(true);
@@ -116,6 +128,7 @@ export function windowUnload(win: any): void {
   windows.delete(win);
 }
 export function shutdown(): void {
+  unsubscribeLanguage?.(); unsubscribeLanguage = undefined;
   clearInterval(timer);
   for (const win of windows) { win.document.removeEventListener('click', navigationListeners.get(win), true); for (const node of win.document.querySelectorAll('[data-margin-active]')) node.removeAttribute('data-margin-active'); }
   navigationListeners.clear();

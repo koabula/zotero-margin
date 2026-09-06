@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import MarkdownIt from "markdown-it";
 import katex from "katex";
 import type { Source } from "./types";
@@ -7,7 +8,7 @@ export function escapeHTML(value: string): string {
 }
 const md = new MarkdownIt({ html: false, linkify: false, breaks: true, typographer: false, xhtmlOut: true });
 // Remote images never load in the privileged Zotero document.
-md.renderer.rules.image = (tokens, index) => `[图像：${escapeHTML(tokens[index].content || "未加载")}]`;
+md.renderer.rules.image = (tokens, index) => `[${escapeHTML(t('图像：{text}',{text:tokens[index].content||t('未加载')}))}]`;
 md.renderer.rules.link_open = (tokens, index) => {
   const href = tokens[index].attrGet("href") || "";
   return /^https?:\/\//i.test(href) ? `<a href="${escapeHTML(href)}" rel="noreferrer noopener">` : "<span>";
@@ -30,10 +31,10 @@ md.inline.ruler.before("text", "margin_citation", (state, silent) => {
 md.renderer.rules.margin_citation = (tokens, index, _options, env) => {
   const id = tokens[index].content;
   const source = (env.sources as Source[]).find(s => s.id === id);
-  if (!source) return `<span class="margin-unverified" title="未找到对应原文">[出处未验证]</span>`;
+  if (!source) return `<span class="margin-unverified" title="${t('未找到对应原文')}">${t('[出处未验证]')}</span>`;
   return env.note
-    ? `<a href="${escapeHTML(env.noteLink(source))}">[第 ${escapeHTML(source.pageLabel)} 页]</a>`
-    : `<button type="button" class="margin-citation" data-source="${escapeHTML(id)}" title="PDF 第 ${source.pageIndex + 1} 页">${escapeHTML(source.pageLabel)} ↗</button>`;
+    ? `<a href="${escapeHTML(env.noteLink(source))}">[${escapeHTML(t('第 {page} 页',{page:source.pageLabel}))}]</a>`
+    : `<button type="button" class="margin-citation" data-source="${escapeHTML(id)}" title="${t('PDF 第 {page} 页',{page:source.pageIndex+1})}">${escapeHTML(source.pageLabel)} ↗</button>`;
 };
 md.inline.ruler.before("escape", "margin_math", (state, silent) => {
   const start = state.pos;

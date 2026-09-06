@@ -1,4 +1,6 @@
+import { setLanguage } from "../src/i18n";
 import test from 'node:test';
+test.beforeEach(() => setLanguage("zh-CN"));
 import assert from 'node:assert/strict';
 import { listModels } from '../src/provider';
 import { normalizeConfig } from '../src/models';
