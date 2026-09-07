@@ -47,6 +47,7 @@ export class Sidebar {
   private selection: TextSelection;
   private messageNodes = new Map<string, { node: HTMLElement; markup: string }>();
   private includeSelection = true;
+  private removedSelection = "";
   private view: "chat" | "settings" | "history" = "chat";
   private renderTimer?: ReturnType<typeof setTimeout>;
   private saveTimer?: ReturnType<typeof setTimeout>;
@@ -114,7 +115,7 @@ export class Sidebar {
         if (this.disposed || generation !== this.generation) return;
         const session = await this.host.store.loadSession(key);
         if (this.disposed || generation !== this.generation) return;
-        this.key = key; this.session = session; this.includeSelection = true;
+        this.key = key; this.session = session; this.includeSelection = true; this.removedSelection = "";
         this.el<HTMLTextAreaElement>("textarea").value = session.draft;
         this.renderMessages();
         this.clearError();
@@ -127,7 +128,7 @@ export class Sidebar {
     const bridge = this.bridge, generation = this.generation;
     try {
       const context = await bridge.context();
-      if (!this.disposed && bridge === this.bridge && generation === this.generation) { this.context = context; this.updateContext(); }
+      if (!this.disposed && bridge === this.bridge && generation === this.generation) { this.context = context; this.trackSelection(); this.updateContext(); }
     } catch { /* Closing/loading tabs are handled by attach. */ }
   }
   private updateContext(): void {
@@ -140,6 +141,9 @@ export class Sidebar {
     if (selected) this.el(".margin-selection span").textContent = t('已选文字 · {text}', {text:context!.selection.slice(0,65)+(context!.selection.length>65?'…':'')});
     this.el<HTMLTextAreaElement>("textarea").disabled = !context;
     this.el<HTMLButtonElement>(".margin-send").disabled = !context;
+  }
+  private trackSelection(): void {
+    if (!this.includeSelection && this.context?.selection && this.context.selection !== this.removedSelection) this.includeSelection = true;
   }
   async refreshConfig(): Promise<void> {
     try { const config = await this.host.store.getConfig(); if (!this.disposed) { this.config = normalizeConfig(config); this.updateModel(); } } catch (e) { this.error(e); }
@@ -338,7 +342,7 @@ export class Sidebar {
     }
     if (action === "settings") { this.openSettings(); return; }
     if (action === "back") { this.connectionController?.abort(); this.setView("chat"); return; }
-    if (action === "selection") { this.includeSelection = false; this.updateContext(); return; }
+    if (action === "selection") { this.includeSelection = false; this.removedSelection = this.context?.selection || ""; this.updateContext(); return; }
     if (action === "copy") { const message = this.message(target); if (message) { this.host.copy(message.content.replace(/\[\[([^\]]+)\]\]/g, (_, id) => { const source = message.sources.find(s => s.id === id); return source ? `[${t('第 {page} 页',{page:source.pageLabel})}]` : t("[出处未验证]"); })); this.status(t("已复制回答")); } return; }
     if (action === "save-answer") { const message = this.message(target); if (message) { (target as HTMLButtonElement).disabled = true; try { await this.saveNote(t("阅读笔记 · ") + this.context?.title.slice(0, 80), message.content, message.sources); this.status(t("已保存到文献笔记")); } finally { (target as HTMLButtonElement).disabled = false; } } return; }
     if (action === "confirm-note" && this.pendingNote) {
@@ -353,7 +357,7 @@ export class Sidebar {
       if (this.session.messages.length) (this.session.archives ??= []).unshift({ createdAt: new Date().toISOString(), messages: this.session.messages, modelID: this.session.modelID });
       this.session.modelID = this.config.defaultModelID; this.updateModel();
       this.session.messages = []; this.session.draft = ""; this.el<HTMLTextAreaElement>("textarea").value = "";
-      this.includeSelection = true; this.el(".margin-status").textContent = ""; this.clearError(); this.setView("chat"); this.renderMessages(); this.updateContext(); await this.persist(); return;
+      this.includeSelection = true; this.removedSelection = ""; this.el(".margin-status").textContent = ""; this.clearError(); this.setView("chat"); this.renderMessages(); this.updateContext(); await this.persist(); return;
     }
     if (action === "history") { this.openHistory(); return; }
     if (action === "restore") {
@@ -364,6 +368,15 @@ export class Sidebar {
       if (this.session.messages.length) this.session.archives!.unshift({ createdAt: new Date().toISOString(), messages: this.session.messages, modelID: this.session.modelID });
       this.session.modelID = archive.modelID; this.updateModel();
       this.session.messages = archive.messages; this.setView("chat"); this.renderMessages(); await this.persist(); return;
+    }
+    if (action === "delete-history") {
+      const index = Number(target.dataset.index);
+      if (this.session.archives && Number.isInteger(index) && this.session.archives[index]) {
+        this.session.archives.splice(index, 1);
+        this.openHistory();
+        await this.persist();
+      }
+      return;
     }
     if (action === "save-settings" || action === "test-settings") {
       const config = this.readSettings(); endpoint(config.baseURL); if (!config.modelIDs.length) throw new Error(t("请至少选择或添加一个模型。"));
@@ -422,7 +435,7 @@ export class Sidebar {
       const title = archive.messages.find(message => message.role === 'user')?.content || t('阅读对话');
       const date = new Date(archive.createdAt);
       const formattedDate = date.toLocaleString(getLocale());
-      return `<button type="button" class="margin-history-item" data-action="restore" data-index="${index}" title="${escapeHTML(title)}"><strong class="margin-history-title">${escapeHTML(title)}</strong><span class="margin-history-meta"><time datetime="${escapeHTML(archive.createdAt)}">${escapeHTML(formattedDate)}</time><span>${L(archive.messages.length===1?'1 条消息':'{count} 条消息',{count:archive.messages.length})}</span></span></button>`;
+      return `<div class="margin-history-item"><button type="button" class="margin-history-restore" data-action="restore" data-index="${index}" title="${escapeHTML(title)}"><strong class="margin-history-title">${escapeHTML(title)}</strong><span class="margin-history-meta"><time datetime="${escapeHTML(archive.createdAt)}">${escapeHTML(formattedDate)}</time><span>${L(archive.messages.length===1?'1 条消息':'{count} 条消息',{count:archive.messages.length})}</span></span></button><button type="button" class="margin-icon-button margin-history-delete" data-action="delete-history" data-index="${index}" data-i18n-aria-label="删除对话" aria-label="${t('删除对话')}" data-i18n-title="删除对话" title="${t('删除对话')}">${icon("close")}</button></div>`;
     }).join('');
     setMarkup(this.el('.margin-history'), `<div class="margin-section-heading">${button('back','返回对话','back')}<span>${L('这篇文献的对话')}</span></div><p class="margin-settings-intro">${L('每次新对话，都会留在这里。')}</p><div class="margin-history-list">${items || `<div class="margin-history-empty">${L('还没有历史对话')}</div>`} </div>`);
   }

@@ -89,6 +89,7 @@ export const enUS: Record<keyof typeof zhCN, string> = {
   "这篇文献的对话": "Conversations for this document",
   "每次新对话，都会留在这里。": "Previous conversations are saved here.",
   "还没有历史对话": "No previous conversations",
+  "删除对话": "Delete conversation",
   "复制所选文字": "Copy selected text",
   "问问 Margin": "Ask Margin",
   "AI 阅读助手": "AI reading companion",
