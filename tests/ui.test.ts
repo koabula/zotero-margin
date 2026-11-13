@@ -26,6 +26,18 @@ test("sidebar follows document context, lets users exclude selection, and opens 
   assert.equal(sidebar.root.querySelectorAll('.margin-user').length, 0);
   sidebar.dispose();
 });
+test("removing the selection context re-enables when different text is selected", async () => {
+  const { sidebar, bridge } = setup(); await sidebar.attach(bridge);
+  const badge = sidebar.root.querySelector<HTMLElement>('.margin-selection')!;
+  assert.equal(badge.hidden, false);
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="selection"]')!.click();
+  assert.equal(badge.hidden, true);
+  bridge.context = async () => ({ attachmentID: 1, libraryID: 1, attachmentKey: 'ABCDEFGH', title: 'Real Paper', authors: 'Author', pageIndex: 1, pageLabel: '21', pageCount: 3, selection: 'A different passage' });
+  await sidebar.refreshContext();
+  assert.equal(badge.hidden, false);
+  assert.ok(badge.textContent?.includes('A different passage'));
+  sidebar.dispose();
+});
 test("new conversations archive and restore the document's history", async () => {
   const { sidebar, bridge, sessions } = setup();
   sessions.set('1-ABCDEFGH', { version: 1, draft: '', messages: [{ id:'a',role:'user',content:'An earlier question',sources:[] }] });
@@ -237,14 +249,32 @@ test('history keeps complete titles, escapes markup and formats dates in the cur
   sessions.set('1-ABCDEFGH',{version:1,draft:'keep draft',messages:[],archives:[{createdAt:'2026-12-31T23:59:59Z',messages:[{id:'old',role:'user',content:title,sources:[]}]}]});
   await sidebar.attach(bridge);setLanguage('en-US');
   sidebar.root.querySelector<HTMLButtonElement>('[data-action="history"]')!.click();
-  let row=sidebar.root.querySelector<HTMLButtonElement>('.margin-history-item')!;
+  let row=sidebar.root.querySelector<HTMLButtonElement>('.margin-history-restore')!;
   assert.equal(row.title,title);assert.equal(row.querySelector('strong')!.textContent,title);
   assert.equal(row.querySelector('img'),null);assert.ok(row.textContent!.includes('1 message'));
   assert.equal(row.querySelector('time')!.textContent,new Date('2026-12-31T23:59:59Z').toLocaleString('en-US'));
-  setLanguage('zh-CN');row=sidebar.root.querySelector<HTMLButtonElement>('.margin-history-item')!;
+  setLanguage('zh-CN');row=sidebar.root.querySelector<HTMLButtonElement>('.margin-history-restore')!;
   assert.equal(row.title,title);assert.equal(row.querySelector('time')!.textContent,new Date('2026-12-31T23:59:59Z').toLocaleString('zh-CN'));
   row.click();await tick();assert.equal(sidebar.root.querySelector('.margin-user div')!.textContent,title);
   assert.equal(sidebar.root.querySelector('textarea')!.value,'keep draft');sidebar.dispose();
+});
+
+test('a history conversation can be deleted and the removal persists', async () => {
+  const { sidebar, bridge, sessions } = setup();
+  sessions.set('1-ABCDEFGH', { version: 1, draft: '', messages: [], archives: [
+    { createdAt: '2026-01-01T00:00:00Z', messages: [{ id: 'q1', role: 'user', content: 'First question', sources: [] }] },
+    { createdAt: '2026-02-01T00:00:00Z', messages: [{ id: 'q2', role: 'user', content: 'Second question', sources: [] }] },
+  ] });
+  await sidebar.attach(bridge);
+  sidebar.root.querySelector<HTMLButtonElement>('[data-action="history"]')!.click();
+  assert.equal(sidebar.root.querySelectorAll('.margin-history-item').length, 2);
+  sidebar.root.querySelector<HTMLButtonElement>('.margin-history-delete')!.click();
+  await tick();
+  assert.equal(sidebar.root.querySelectorAll('.margin-history-item').length, 1);
+  assert.ok(!sidebar.root.textContent?.includes('First question'));
+  assert.equal(sessions.get('1-ABCDEFGH')!.archives!.length, 1);
+  assert.equal(sessions.get('1-ABCDEFGH')!.archives![0].messages[0].content, 'Second question');
+  sidebar.dispose();
 });
 
 
